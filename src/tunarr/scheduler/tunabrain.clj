@@ -115,11 +115,10 @@
                      :media-name (::media/name media)}))))
 
 (defn request-categorization!
-  "Fetch dimension-based categorization and optional channel mappings from tunabrain."
-  [client media & {:keys [categories channels]}]
+  "Fetch dimension-based categorization from tunabrain."
+  [client media & {:keys [categories]}]
   (if-let [response (json-post! client "/categorize"
                                 {:media      (media-map->tunabrain-format media)
-                                 :channels   channels
                                  :categories categories})]
     (let [{:keys [dimensions mappings]} response]
       (when (and (nil? dimensions) (nil? mappings))

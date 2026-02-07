@@ -91,11 +91,10 @@
                                      ::media/rationale]))))
 
 (defn recategorize-media!
-  [brain catalog {:keys [::media/id ::media/name] :as media} channels categories]
+  [brain catalog {:keys [::media/id ::media/name] :as media} categories]
   (log/info (format "recategorizing media: %s" name))
   (when-let [response (tunabrain/request-categorization! brain media
-                                                         :categories categories
-                                                         :channels   channels)]
+                                                         :categories categories)]
     (let [{:keys [dimensions mappings]} response]
       (when (s/valid? ::channel-mappings mappings)
         (let [channel-names (map ::media/channel-name mappings)]
@@ -106,7 +105,7 @@
           (catalog/set-media-category-values! catalog id category values))))))
 
 (defn categorize-library-media!
-  [brain catalog library throttler & {:keys [channels threshold categories force]}]
+  [brain catalog library throttler & {:keys [threshold categories force]}]
   (log/info (format "recategorizing media for library: %s (force=%s)" library (boolean force)))
   (let [threshold-date (when threshold (days-ago threshold))
         library-media  (catalog/get-media-by-library catalog library)]
@@ -118,7 +117,7 @@
                         :process/categorize threshold-date))
         (throttler/submit! throttler recategorize-media!
                            (process-callback catalog media :process/categorize)
-                           [brain catalog media channels categories])
+                           [brain catalog media categories])
         (log/info "skipping tagline generation on media: %s" (::media/name media))))))
 
 (defrecord TunabrainCuratorBackend
@@ -148,7 +147,6 @@
       [_ library {:keys [force]}]
       (categorize-library-media! brain catalog library throttler
                                  :threshold (get-in config [:thresholds :recategorize])
-                                 :channels (get config :channels)
                                  :categories (get config :categories)
                                  :force force)))
 

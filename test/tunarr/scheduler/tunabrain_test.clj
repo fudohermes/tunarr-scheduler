@@ -91,9 +91,7 @@
             media {::media/name "Test Movie"}
             result (tunabrain/request-categorization! client media
                                                      :categories {:mood {:description "Overall mood"
-                                                                         :values ["exciting" "calm"]}}
-                                                     :channels [{:name "action_channel"}
-                                                                {:name "drama_channel"}])]
+                                                                         :values ["exciting" "calm"]}})]
         (is (= 1 (count (:mappings result))))
         (is (= :action_channel (get-in result [:mappings 0 ::media/channel-name])))
         (is (= "High action content" (get-in result [:mappings 0 ::media/rationale])))
