@@ -84,19 +84,22 @@
                              {:status 200
                               :body "{\"mappings\": [{\"channel_name\": \"action_channel\",
                                                        \"reasons\": [\"High action content\"]}],
-                                      \"dimensions\": {\"mood\": {\"dimension\": \"mood\",
-                                                                  \"values\": [{\"value\": \"exciting\",
-                                                                              \"reasons\": [\"Fast paced\"]}]}}}"})]
+                                      \"dimensions\": [{\"dimension\": \"mood\",
+                                                        \"values\": [\"exciting\"],
+                                                        \"notes\": [\"Fast paced\"]}]}"})]
       (let [client (tunabrain/create! {:endpoint "http://test.local"})
             media {::media/name "Test Movie"}
             result (tunabrain/request-categorization! client media
-                                                     :categories [:mood]
-                                                     :channels [:action-channel :drama-channel])]
+                                                     :categories {:mood {:description "Overall mood"
+                                                                         :values ["exciting" "calm"]}}
+                                                     :channels [{:name "action_channel"}
+                                                                {:name "drama_channel"}])]
         (is (= 1 (count (:mappings result))))
         (is (= :action_channel (get-in result [:mappings 0 ::media/channel-name])))
         (is (= "High action content" (get-in result [:mappings 0 ::media/rationale])))
         (is (contains? (:dimensions result) :mood))
-        (is (= :exciting (get-in result [:dimensions :mood 0 ::media/category-value])))))))
+        (is (= :exciting (get-in result [:dimensions :mood 0 ::media/category-value])))
+        (is (= "Fast paced" (get-in result [:dimensions :mood 0 ::media/rationale])))))))
 
 (deftest request-tag-triage-test
   (testing "request-tag-triage! parses triage response"
@@ -153,7 +156,14 @@
     (let [called-urls (atom [])]
       (with-redefs [http/post (fn [url _]
                                (swap! called-urls conj url)
-                               {:status 200 :body "[]"})]
+                               {:status 200
+                                :body (if (re-find #"/categorize$" url)
+                                        "{\"dimensions\": [], \"mappings\": []}"
+                                        (if (re-find #"/tag-governance/triage$" url)
+                                          "{\"decisions\": []}"
+                                          (if (re-find #"/tags/audit$" url)
+                                            "{\"tags_to_delete\": []}"
+                                            "[]")))})]
         (let [client (tunabrain/create! {:endpoint "https://api.example.com"})
               media {::media/name "Test"}]
           (tunabrain/request-tags! client media)

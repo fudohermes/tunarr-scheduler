@@ -19,21 +19,17 @@
   (some-> endpoint (str/replace #"/+$" "")))
 
 (defn- media-map->tunabrain-format
-  "Transform media map from Clojure namespaced keywords to tunabrain's expected format.
-   Tunabrain expects plain JSON keys like 'id', 'title', 'overview', etc."
+  "Transform media map from Clojure namespaced keywords to tunabrain's MediaItem format.
+   See tunabrain api/models.py MediaItem for the canonical field list."
   [media]
-  {:id (::media/id media)
-   :title (::media/name media)
-   :overview (::media/overview media)
-   :genres (::media/genres media)
-   :tags (mapv name (remove nil? (::media/tags media)))
-   :production_year (::media/production-year media)
-   :premiere_date (str (::media/premiere media))
-   :community_rating (::media/community-rating media)
-   :critic_rating (::media/critic-rating media)
-   :official_rating (::media/rating media)
-   :type (name (::media/type media))
-   :taglines (::media/taglines media)})
+  {:id              (::media/id media)
+   :title           (::media/name media)
+   :description     (::media/overview media)
+   :genres          (::media/genres media)
+   :current_tags    (mapv name (remove nil? (::media/tags media)))
+   :rating          (::media/rating media)
+   :critical_rating (::media/critic-rating media)
+   :audience_rating (::media/community-rating media)})
 
 (defn- json-post!
   [^TunabrainClient client path payload]
@@ -119,7 +115,7 @@
                      :media-name (::media/name media)}))))
 
 (defn request-categorization!
-  "Fetch channel mapping metadata for a media item from tunabrain."
+  "Fetch dimension-based categorization and optional channel mappings from tunabrain."
   [client media & {:keys [categories channels]}]
   (if-let [response (json-post! client "/categorize"
                                 {:media      (media-map->tunabrain-format media)
@@ -137,11 +133,14 @@
                    {::media/channel-name (keyword channel_name)
                     ::media/rationale    (str/join "\n" reasons)})
        :dimensions (into {}
-                         (map (fn [[category {:keys [dimension values]}]]
-                                [(keyword (or dimension category))
-                                 (for [{:keys [value reasons]} values]
-                                   {::media/category-value (keyword value)
-                                    ::media/rationale      (str/join "\n" reasons)})]))
+                         (map (fn [{:keys [dimension values notes]}]
+                                (let [notes-v (vec (or notes []))]
+                                  [(keyword dimension)
+                                   (map-indexed
+                                    (fn [i v]
+                                      {::media/category-value (keyword v)
+                                       ::media/rationale      (or (get notes-v i) "")})
+                                    values)])))
                          dimensions)})
     (throw (ex-info "No response received from tunabrain categorization"
                     {:endpoint (:endpoint client)
