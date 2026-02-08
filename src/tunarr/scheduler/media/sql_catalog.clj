@@ -248,7 +248,7 @@
                       (name category-value)
                       rationale])
                    category-values))
-      (on-conflict :media_id :category :category_value :rationale) (do-nothing)))
+      (on-conflict :media_id :category :category_value) (do-nothing)))
 
 (defn sql:get-media-categories [media-id]
   (-> (select :category
