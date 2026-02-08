@@ -243,7 +243,10 @@
       (columns :media_id :category :category_value :rationale)
       (values (map (fn [{:keys [::media/category-value
                                ::media/rationale]}]
-                     [media-id category category-value rationale])
+                     [media-id
+                      (name category)
+                      (name category-value)
+                      rationale])
                    category-values))
       (on-conflict :media_id :category :category_value :rationale) (do-nothing)))
 
