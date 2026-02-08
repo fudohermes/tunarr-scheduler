@@ -97,7 +97,7 @@
                                                          :categories categories)]
     (let [{:keys [dimensions mappings]} response]
       (when (s/valid? ::channel-mappings mappings)
-        (let [channel-names (map ::media/channel-name mappings)]
+        (let [channel-names (vec (map ::media/channel-name mappings))]
           (log/info (format "Channels for %s: %s" name channel-names))
           (catalog/add-media-channels! catalog id channel-names)))
       (when (s/valid? ::categorization dimensions)
