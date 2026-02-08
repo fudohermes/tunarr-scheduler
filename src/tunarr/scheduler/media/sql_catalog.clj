@@ -238,11 +238,10 @@
              [:= :category (name category)])))
 
 (defn sql:add-media-category-values!
-  [media-id category values]
+  [media-id category category-values]
   (-> (insert-into :media_categorization)
       (columns :media_id :category :category_value)
-      (values (map (fn [value] [media-id category value])
-                   values))
+      (values (map (fn [value] [media-id category value]) category-values))
       (on-conflict :media_id :category :category_value) (do-nothing)))
 
 (defn sql:get-media-categories [media-id]
