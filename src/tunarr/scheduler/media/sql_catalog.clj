@@ -240,9 +240,12 @@
 (defn sql:add-media-category-values!
   [media-id category category-values]
   (-> (insert-into :media_categorization)
-      (columns :media_id :category :category_value)
-      (values (map (fn [value] [media-id category value]) category-values))
-      (on-conflict :media_id :category :category_value) (do-nothing)))
+      (columns :media_id :category :category_value :rationale)
+      (values (map (fn [{:keys [::media/category-value
+                               ::media/rationale]}]
+                     [media-id category category-value rationale])
+                   category-values))
+      (on-conflict :media_id :category :category_value :rationale) (do-nothing)))
 
 (defn sql:get-media-categories [media-id]
   (-> (select :category

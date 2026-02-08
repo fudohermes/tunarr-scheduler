@@ -93,8 +93,8 @@
                                                          :categories categories)]
     (let [{:keys [dimensions]} response]
       (when (s/valid? ::categorization dimensions)
-        (doseq [[category values] dimensions]
-          (catalog/set-media-category-values! catalog id category values))))))
+        (doseq [[category selections] dimensions]
+          (catalog/set-media-category-values! catalog id category selections))))))
 
 (defn categorize-library-media!
   [brain catalog library throttler & {:keys [threshold categories force]}]

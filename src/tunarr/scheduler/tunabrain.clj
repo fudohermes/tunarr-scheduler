@@ -120,18 +120,15 @@
   (if-let [response (json-post! client "/categorize"
                                 {:media      (media-map->tunabrain-format media)
                                  :categories categories})]
-    (let [{:keys [dimensions mappings]} response]
-      (when (and (nil? dimensions) (nil? mappings))
-        (throw (ex-info "Invalid categorization response: missing 'dimensions' and 'mappings' keys"
+    (let [{:keys [dimensions]} response]
+      (when (nil? dimensions)
+        (throw (ex-info "Invalid categorization response: missing 'dimensions' key"
                         {:response response
                          :expected-keys [:dimensions :mappings]
                          :media-name (::media/name media)})))
-      (log/info (format "Categorization response: %d dimensions, %d mappings"
-                        (count dimensions) (count mappings)))
-      {:mappings (for [{:keys [channel_name reasons]} mappings]
-                   {::media/channel-name (keyword channel_name)
-                    ::media/rationale    (str/join "\n" reasons)})
-       :dimensions (into {}
+      (log/info (format "Categorization response: %d dimensions"
+                        (count dimensions)))
+      {:dimensions (into {}
                          (map (fn [{:keys [dimension values notes]}]
                                 (let [notes-v (vec (or notes []))]
                                   [(keyword dimension)
