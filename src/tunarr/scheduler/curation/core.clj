@@ -81,10 +81,6 @@
                                  [brain catalog media]))
           (log/info (format "skipping tag generation on media: %s" (::media/name media))))))))
 
-(s/def ::channel-mapping
-  (s/keys :req [::media/channel-name ::media/rationale]))
-(s/def ::channel-mappings (s/coll-of ::channel-mapping))
-
 (s/def ::categorization
   (s/map-of ::media/category-name
             (s/coll-of (s/keys :req [::media/category-value
@@ -95,11 +91,7 @@
   (log/info (format "recategorizing media: %s" name))
   (when-let [response (tunabrain/request-categorization! brain media
                                                          :categories categories)]
-    (let [{:keys [dimensions mappings]} response]
-      (when (s/valid? ::channel-mappings mappings)
-        (let [channel-names (vec (map ::media/channel-name mappings))]
-          (log/info (format "Channels for %s: %s" name channel-names))
-          (catalog/add-media-channels! catalog id channel-names)))
+    (let [{:keys [dimensions]} response]
       (when (s/valid? ::categorization dimensions)
         (doseq [[category values] dimensions]
           (catalog/set-media-category-values! catalog id category values))))))
