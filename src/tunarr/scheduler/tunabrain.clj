@@ -31,6 +31,33 @@
    :critical_rating (::media/critic-rating media)
    :audience_rating (::media/community-rating media)})
 
+(defn- transform-category-value
+  "Transform a category value from Clojure format to tunabrain format.
+   Supports both plain keywords/strings and maps with :value and :description."
+  [v]
+  (cond
+    (map? v)
+    {:value (name (:value v))
+     :description (:description v)}
+    
+    (keyword? v)
+    (name v)
+    
+    :else
+    (str v)))
+
+(defn- categories->tunabrain-format
+  "Transform categories from Clojure format to tunabrain's CategoryDefinition format.
+   Each category should have :description and :values.
+   Values can be plain keywords or maps with :value and :description."
+  [categories]
+  (into {}
+        (map (fn [[category-name category-def]]
+               [(name category-name)
+                {:description (:description category-def)
+                 :values (mapv transform-category-value (:values category-def))}]))
+        categories))
+
 (defn- json-post!
   [^TunabrainClient client path payload]
   (let [url (str (:endpoint client) path)
@@ -119,7 +146,7 @@
   [client media & {:keys [categories]}]
   (if-let [response (json-post! client "/categorize"
                                 {:media      (media-map->tunabrain-format media)
-                                 :categories categories})]
+                                 :categories (categories->tunabrain-format categories)})]
     (let [{:keys [dimensions]} response]
       (when (nil? dimensions)
         (throw (ex-info "Invalid categorization response: missing 'dimensions' key"
