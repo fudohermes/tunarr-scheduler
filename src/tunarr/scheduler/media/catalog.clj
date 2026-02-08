@@ -31,7 +31,7 @@
   (update-process-timestamp! [catalog media-id process])
   (close-catalog! [catalog])
   (get-media-category-values [catalog media-id category])
-  (add-media-category-value! [catalog media-id category value])
+  (add-media-category-value! [catalog media-id category value rationale])
   (add-media-category-values! [catalog media-id category values])
   (set-media-category-values! [catalog media-id category values])
   (get-media-categories [catalog media-id])

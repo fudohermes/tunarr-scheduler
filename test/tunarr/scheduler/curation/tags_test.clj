@@ -44,7 +44,7 @@
   (update-process-timestamp! [_ media-id process] nil)
   (close-catalog! [_] nil)
   (get-media-category-values [_ media-id category] [])
-  (add-media-category-value! [_ media-id category value] nil)
+  (add-media-category-value! [_ media-id category value rationale] nil)
   (add-media-category-values! [_ media-id category values] nil)
   (set-media-category-values! [_ media-id category values] nil)
   (get-media-categories [_ media-id] {})

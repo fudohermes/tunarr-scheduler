@@ -523,8 +523,10 @@
     (map (comp keyword :media_categorization/category_value)
          (sql:fetch! executor (sql:get-media-category-values media-id category))))
 
-  (add-media-category-value! [_ media-id category value & [rationale]]
-    (sql:exec! executor (sql:add-media-category-values! media-id category [value rationale])))
+  (add-media-category-value! [_ media-id category value rationale]
+    (sql:exec! executor (sql:add-media-category-values! media-id category
+                                                        [{::media/category-value value
+                                                          ::media/rationale      rationale}])))
 
   (add-media-category-values! [_ media-id category values]
     (sql:exec! executor (sql:add-media-category-values! media-id category values)))

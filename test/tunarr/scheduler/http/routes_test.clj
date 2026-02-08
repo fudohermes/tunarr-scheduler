@@ -4,7 +4,8 @@
             [ring.mock.request :as mock]
             [tunarr.scheduler.http.routes :as routes]
             [tunarr.scheduler.jobs.runner :as runner]
-            [tunarr.scheduler.media.catalog :as catalog]))
+            [tunarr.scheduler.media.catalog :as catalog]
+            [tunarr.scheduler.media :as media]))
 
 ;; Mock catalog implementation for testing
 (defrecord MockCatalog [state]
@@ -61,8 +62,9 @@
   (close-catalog! [_] nil)
   (get-media-category-values [_ media-id category]
     (get-in @state [:category-values media-id category] []))
-  (add-media-category-value! [_ media-id category value]
-    (swap! state update-in [:category-values media-id category] (fnil conj []) value))
+  (add-media-category-value! [_ media-id category value rationale]
+    (swap! state update-in [:category-values media-id category]
+           (fnil conj []) {::media/category-value value ::media/rationale rationale}))
   (add-media-category-values! [_ media-id category values]
     (swap! state update-in [:category-values media-id category] (fnil concat []) values))
   (set-media-category-values! [_ media-id category values]

@@ -4,7 +4,7 @@
       assistance.'';
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixos-25.05";
+    nixpkgs.url = "nixpkgs/nixos-25.11";
     utils.url = "github:numtide/flake-utils";
     nix-helpers = {
       url = "github:fudoniten/fudo-nix-helpers";
