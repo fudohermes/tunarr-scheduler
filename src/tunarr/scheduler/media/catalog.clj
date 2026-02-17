@@ -36,7 +36,11 @@
   (set-media-category-values! [catalog media-id category values])
   (get-media-categories [catalog media-id])
   (delete-media-category-value! [catalog media-id category value])
-  (delete-media-category-values! [catalog media-id category]))
+  (delete-media-category-values! [catalog media-id category])
+  (get-episodes-by-series [catalog series-id])
+  (get-episode [catalog series-id season-number episode-number])
+  (get-effective-tags [catalog media-id])
+  (get-effective-categories [catalog media-id]))
 
 (defmulti initialize-catalog! :type)
 
@@ -187,6 +191,29 @@
                :media-id ::media/id
                :category ::media/category-name))
 
+(s/fdef get-episodes-by-series
+  :args (s/cat :catalog   ::catalog
+               :series-id ::media/id)
+  :ret  (s/coll-of ::media/metadata))
+
+(s/fdef get-episode
+  :args (s/cat :catalog        ::catalog
+               :series-id      ::media/id
+               :season-number  pos-int?
+               :episode-number pos-int?)
+  :ret  (s/nilable ::media/metadata))
+
+(s/fdef get-effective-tags
+  :args (s/cat :catalog  ::catalog
+               :media-id ::media/id)
+  :ret  ::media/tags)
+
+(s/fdef get-effective-categories
+  :args (s/cat :catalog  ::catalog
+               :media-id ::media/id)
+  :ret  (s/map-of ::media/category-name
+                  (s/coll-of ::media/category-value)))
+
 (instrument 'add-media)
 (instrument 'add-media-batch)
 (instrument 'get-media)
@@ -213,3 +240,7 @@
 (instrument 'get-media-categories)
 (instrument 'delete-media-category-value!)
 (instrument 'delete-media-category-values!)
+(instrument 'get-episodes-by-series)
+(instrument 'get-episode)
+(instrument 'get-effective-tags)
+(instrument 'get-effective-categories)

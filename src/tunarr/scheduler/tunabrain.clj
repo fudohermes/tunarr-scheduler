@@ -20,16 +20,23 @@
 
 (defn- media-map->tunabrain-format
   "Transform media map from Clojure namespaced keywords to tunabrain's MediaItem format.
-   See tunabrain api/models.py MediaItem for the canonical field list."
+   See tunabrain api/models.py MediaItem for the canonical field list.
+   When the media item is an episode, includes episode context fields."
   [media]
-  {:id              (::media/id media)
-   :title           (::media/name media)
-   :description     (::media/overview media)
-   :genres          (::media/genres media)
-   :current_tags    (mapv name (remove nil? (::media/tags media)))
-   :rating          (::media/rating media)
-   :critical_rating (::media/critic-rating media)
-   :audience_rating (::media/community-rating media)})
+  (cond-> {:id              (::media/id media)
+           :title           (::media/name media)
+           :description     (::media/overview media)
+           :genres          (::media/genres media)
+           :current_tags    (mapv name (remove nil? (::media/tags media)))
+           :rating          (::media/rating media)
+           :critical_rating (::media/critic-rating media)
+           :audience_rating (::media/community-rating media)}
+    (::media/season-number media)
+    (assoc :season_number (::media/season-number media))
+    (::media/episode-number media)
+    (assoc :episode_number (::media/episode-number media))
+    (::media/parent-id media)
+    (assoc :is_episode true)))
 
 (defn- transform-category-value
   "Transform a category value from Clojure format to tunabrain format.

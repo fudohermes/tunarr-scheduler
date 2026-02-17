@@ -106,6 +106,22 @@
       (log/error e "Error submitting recategorize job" {:library library})
       (json-response {:error (.getMessage e)} 500))))
 
+(defn- submit-retag-episodes-job!
+  [{:keys [job-runner catalog tunabrain throttler config]} {:keys [library force]}]
+  (try
+    (submit-job! job-runner
+                 :media/retag-episodes
+                 library
+                 "library not specified for episode retagging"
+                 (fn [_opts] (curate/retag-library-episodes!
+                               (curate/->TunabrainCuratorBackend
+                                 tunabrain catalog throttler config)
+                               library
+                               {:force force})))
+    (catch Exception e
+      (log/error e "Error submitting episode retag job" {:library library})
+      (json-response {:error (.getMessage e)} 500))))
+
 (defn- submit-jellyfin-sync-job!
   [{:keys [job-runner catalog jellyfin-config]} {:keys [library]}]
   (try
@@ -204,6 +220,16 @@
                                                        :config     curation-config}
                                                       {:library    library
                                                        :force      (= "true" (get query-params "force"))}))}]
+            ["/media/:library/retag-episodes" {:post (fn [{{:keys [library]} :path-params
+                                                                                           :keys [query-params]}]
+                                                            (submit-retag-episodes-job!
+                                                             {:job-runner job-runner
+                                                              :catalog    catalog
+                                                              :tunabrain  tunabrain
+                                                              :throttler  throttler
+                                                              :config     curation-config}
+                                                             {:library    library
+                                                              :force      (= "true" (get query-params "force"))}))}]
             ["/media/:library/sync-jellyfin-tags" {:post (fn [{{:keys [library]} :path-params}]
                                                             (submit-jellyfin-sync-job!
                                                              {:job-runner job-runner
