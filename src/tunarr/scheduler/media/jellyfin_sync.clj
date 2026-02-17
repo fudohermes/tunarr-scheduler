@@ -47,23 +47,42 @@
            :error (:body response)
            :status (:status response)})))))
 
+(defn- sync-item!
+  "Sync tags for a single item and record the result."
+  [sidekick-url results item-id tags]
+  (let [result (update-item-tags! sidekick-url item-id tags)]
+    (if (:success result)
+      (swap! results update :synced inc)
+      (do
+        (swap! results update :failed inc)
+        (swap! results update :errors conj
+              {:item-id item-id :error (:error result)})))))
+
 (defn sync-library-tags!
   "Sync all tags from catalog to Jellyfin via jellyfin-sidekick.
-   
+
    Iterates over all media items in the catalog for the specified library
    and pushes their current tags to jellyfin-sidekick, which writes NFO files
-   and triggers Jellyfin to refresh metadata."
+   and triggers Jellyfin to refresh metadata.
+
+   For series, also syncs effective tags (series tags ∪ episode tags) for each
+   episode."
   [catalog config library opts]
   (let [{:keys [report-progress]} opts
         sidekick-url (or (:sidekick-url config)
                         "http://jellyfin-sidekick.arr.svc.cluster.local:8080")
         media-items (catalog/get-media-by-library catalog library)
-        total-count (count media-items)
-        _ (log/info (format "Syncing tags for %d items in library %s via jellyfin-sidekick" 
-                           total-count library))
+        series-items (filter #(= :series (::media/type %)) media-items)
+        episodes (mapcat #(catalog/get-episodes-by-series catalog (::media/id %))
+                         series-items)
+        all-items (concat media-items episodes)
+        total-count (count all-items)
+        _ (log/info (format "Syncing tags for %d items (%d top-level, %d episodes) in library %s via jellyfin-sidekick"
+                           total-count (count media-items) (count episodes) library))
         _ (log/info "Using jellyfin-sidekick at" {:url sidekick-url})
         results (atom {:synced 0 :failed 0 :errors []})]
-    
+
+    ;; Sync top-level items (movies & series) with their own tags
     (doseq [[idx item] (map-indexed vector media-items)]
       (let [item-id (::media/id item)
             tags (or (catalog/get-media-tags catalog item-id) [])]
@@ -72,15 +91,19 @@
                            :current (inc idx)
                            :total total-count
                            :item item-id}))
-        
-        (let [result (update-item-tags! sidekick-url item-id tags)]
-          (if (:success result)
-            (swap! results update :synced inc)
-            (do
-              (swap! results update :failed inc)
-              (swap! results update :errors conj
-                    {:item-id item-id :error (:error result)}))))))
-    
+        (sync-item! sidekick-url results item-id tags)))
+
+    ;; Sync episodes with effective tags (series tags ∪ episode tags)
+    (doseq [[idx ep] (map-indexed vector episodes)]
+      (let [ep-id (::media/id ep)
+            effective-tags (or (catalog/get-effective-tags catalog ep-id) [])]
+        (when report-progress
+          (report-progress {:phase :syncing-episodes
+                           :current (+ (count media-items) (inc idx))
+                           :total total-count
+                           :item ep-id}))
+        (sync-item! sidekick-url results ep-id effective-tags)))
+
     (let [final-results @results]
       (log/info (format "Tag sync complete: %d synced, %d failed"
                        (:synced final-results)
