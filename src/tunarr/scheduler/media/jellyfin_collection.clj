@@ -38,7 +38,10 @@
    "Tags"
    "Overview"
    "Genres"
-   "Taglines"])
+   "Taglines"
+   "ParentIndexNumber"
+   "IndexNumber"
+   "SeriesId"])
 
 (defn transform-field
   [i in out f]
@@ -88,9 +91,34 @@
                          (fn [tags] (->> (or tags [])
                                         (map ->kebab-case-keyword))))
         (transform-field :Taglines ::media/taglines
-                         (default [])))))
+                         (default []))
+        (transform-field :SeriesId ::media/parent-id
+                         identity)
+        (transform-field :ParentIndexNumber ::media/season-number
+                         identity)
+        (transform-field :IndexNumber ::media/episode-number
+                         identity))))
+
+(defn jellyfin:fetch-series-episodes
+  "Fetch all episodes for a given series from Jellyfin."
+  [{:keys [base-url] :as config} series-id library-id]
+  (let [url (build-url base-url
+                       :path (str "/Shows/" series-id "/Episodes")
+                       :params {:Fields (str/join "," JELLYFIN_DEFAULT_FIELDS)})]
+    (log/info "Fetching episodes for series" {:series-id series-id})
+    (->> (jellyfin-request config url)
+         :Items
+         (map parse-jellyfin-item)
+         (map (fn [ep]
+                (assoc ep
+                       ::media/type :episode
+                       ::media/parent-id series-id
+                       ::media/library-id library-id))))))
 
 (defn jellyfin:fetch-library-items
+  "Fetch all movies, series, and episodes from a Jellyfin library.
+   Series are fetched first, then episodes for each series are fetched
+   and appended. The result is ordered with series before their episodes."
   [{:keys [base-url libraries] :as config} library]
   (if-let [library-id (get libraries library)]
     (let [url (build-url base-url
@@ -99,18 +127,55 @@
                                   :SortBy           "SortName"
                                   :ParentId         library-id
                                   :IncludeItemTypes "Movie,Series"
-                                  :Fields           (str/join "," JELLYFIN_DEFAULT_FIELDS)})]
-      (->> (jellyfin-request config url)
-           :Items
-           (map parse-jellyfin-item)
-           (map (fn [m] (assoc m ::media/library-id library-id)))))
+                                  :Fields           (str/join "," JELLYFIN_DEFAULT_FIELDS)})
+          top-level (->> (jellyfin-request config url)
+                         :Items
+                         (map parse-jellyfin-item)
+                         (map (fn [m] (assoc m ::media/library-id library-id))))
+          series-items (filter #(= :series (::media/type %)) top-level)
+          episodes (mapcat (fn [series]
+                             (try
+                               (jellyfin:fetch-series-episodes config
+                                                               (::media/id series)
+                                                               library-id)
+                               (catch Exception e
+                                 (log/warn "Failed to fetch episodes for series"
+                                           {:series (::media/name series)
+                                            :error  (.getMessage e)})
+                                 [])))
+                           series-items)]
+      (concat top-level episodes))
     (throw (ex-info (format "media library not found: %s" library)
                     {:library library}))))
+
+(defn- ensure-episode-defaults
+  "Episodes from Jellyfin may lack some fields that series/movies have.
+   Fill in sensible defaults so they pass spec validation."
+  [item]
+  (if (= :episode (::media/type item))
+    (cond-> item
+      (nil? (::media/production-year item))
+      (assoc ::media/production-year (or (some-> (::media/premiere item) (.getYear))
+                                         (.getYear (LocalDate/now))))
+      (nil? (::media/subtitles item))
+      (assoc ::media/subtitles false)
+      (nil? (::media/kid-friendly? item))
+      (assoc ::media/kid-friendly? false)
+      (nil? (::media/taglines item))
+      (assoc ::media/taglines [])
+      (nil? (::media/tags item))
+      (assoc ::media/tags [])
+      (nil? (::media/genres item))
+      (assoc ::media/genres [])
+      (nil? (::media/subtitles? item))
+      (assoc ::media/subtitles? false))
+    item))
 
 (defrecord JellyfinMediaCollection [config]
   collection/MediaCollection
   (get-library-items [_ library]
-    (for [md (jellyfin:fetch-library-items config library)]
+    (for [md (jellyfin:fetch-library-items config library)
+          :let [md (ensure-episode-defaults md)]]
       (if (s/invalid? (s/conform ::media/metadata md))
         (do (log/error (s/explain ::media/metadata md))
             (throw (ex-info "invalid metadata" {:metadata md :error (s/explain-data ::media/metadata md)})))

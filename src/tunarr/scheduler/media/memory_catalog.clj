@@ -68,6 +68,7 @@
     (->> (get @state :media {})
          vals
          (filter #(= library-id (::media/library-id %)))
+         (remove #(= :episode (::media/type %)))
          vec))
   (add-media-tags! [_ media-id tags]
     (update-media! state media-id #(update % ::media/tags conj-distinct tags))
@@ -112,6 +113,37 @@
     (doseq [[old-tag new-tag] tag-pairs]
       (catalog/rename-tag! self old-tag new-tag))
     nil)
+  (get-episodes-by-series [_ series-id]
+    (->> (get @state :media {})
+         vals
+         (filter #(= series-id (::media/parent-id %)))
+         (sort-by (juxt ::media/season-number ::media/episode-number))
+         vec))
+
+  (get-episode [_ series-id season-number episode-number]
+    (->> (get @state :media {})
+         vals
+         (filter #(and (= series-id (::media/parent-id %))
+                       (= season-number (::media/season-number %))
+                       (= episode-number (::media/episode-number %))))
+         first))
+
+  (get-effective-tags [_ media-id]
+    (let [item (get-in @state [:media media-id])
+          own-tags (or (::media/tags item) [])
+          parent-tags (when-let [pid (::media/parent-id item)]
+                        (or (::media/tags (get-in @state [:media pid])) []))]
+      (vec (distinct (concat own-tags parent-tags)))))
+
+  (get-effective-categories [_ media-id]
+    (let [item (get-in @state [:media media-id])
+          own-cats (or (get-in @state [:categories media-id]) {})
+          parent-cats (when-let [pid (::media/parent-id item)]
+                        (or (get-in @state [:categories pid]) {}))]
+      (if (seq parent-cats)
+        (merge parent-cats own-cats)
+        own-cats)))
+
   (close-catalog! [_]
     (reset! state {:media {}})
     nil))

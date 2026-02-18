@@ -3,6 +3,7 @@
             [tunarr.scheduler.jobs.throttler :as throttler]
             [tunarr.scheduler.media :as media]
             [tunarr.scheduler.tunabrain :as tunabrain]
+            [tunarr.scheduler.curation.episode-tags :as episode-tags]
             [taoensso.timbre :as log]
             [clojure.spec.alpha :as s]
             [clojure.stacktrace :refer [print-stack-trace]])
@@ -40,7 +41,11 @@
   (generate-library-taglines! [self library] [self library opts]
     "Generate taglines for media in the supplied library.")
   (recategorize-library! [self library] [self library opts]
-    "Update channel mapping metadata for the supplied library."))
+    "Update channel mapping metadata for the supplied library.")
+  (retag-library-episodes! [self library] [self library opts]
+    "Selectively tag episodes that are candidates for special tags.
+     Tier 1 (deterministic) runs on all episodes, Tier 2 (LLM) only
+     on episodes that appear to need special tags."))
 
 (defn overdue? [media process threshold]
   (let [ts (process-timestamp media process)]
@@ -80,6 +85,46 @@
                                  (process-callback catalog media :process/tagging)
                                  [brain catalog media]))
           (log/info (format "skipping tag generation on media: %s" (::media/name media))))))))
+
+(defn retag-series-episodes!
+  "Tag episodes for a single series. Tier 1 (deterministic) tags are applied to
+   all episodes. Tier 2 (LLM) tagging is submitted for episodes that appear to
+   need special tags."
+  [brain catalog series-id throttler & {:keys [force]}]
+  (let [episodes (catalog/get-episodes-by-series catalog series-id)]
+    (when (seq episodes)
+      (let [candidates (if force
+                         episodes
+                         (filter episode-tags/episode-needs-special-tags? episodes))]
+        (log/info (format "Episode tagging for series %s: %d total, %d candidates"
+                          series-id (count episodes) (count candidates)))
+        ;; Tier 1: Apply deterministic tags to all episodes
+        (doseq [ep episodes]
+          (let [auto-tags (episode-tags/auto-tag-episode ep)]
+            (when (seq auto-tags)
+              (log/info (format "Auto-tagging episode %s S%02dE%02d: %s"
+                                (::media/name ep)
+                                (::media/season-number ep)
+                                (::media/episode-number ep)
+                                auto-tags))
+              (catalog/add-media-tags! catalog (::media/id ep) (vec auto-tags)))))
+        ;; Tier 2: Send candidates to LLM for refined tagging
+        (doseq [ep candidates]
+          (throttler/submit! throttler retag-media!
+                             (process-callback catalog ep :process/episode-tagging)
+                             [brain catalog ep]))))))
+
+(defn retag-library-episodes!
+  "Tag episodes for all series in a library."
+  [brain catalog library throttler & {:keys [threshold force]}]
+  (log/info (format "Tagging episodes for library: %s (force=%s)" (name library) (boolean force)))
+  (let [library-media (catalog/get-media-by-library catalog library)
+        series-items  (filter #(= :series (::media/type %)) library-media)]
+    (log/info (format "Found %d series in %s for episode tagging"
+                      (count series-items) (name library)))
+    (doseq [series series-items]
+      (retag-series-episodes! brain catalog (::media/id series) throttler
+                              :force force))))
 
 (s/def ::categorization
   (s/map-of ::media/category-name
@@ -140,7 +185,16 @@
       (categorize-library-media! brain catalog library throttler
                                  :threshold (get-in config [:thresholds :recategorize])
                                  :categories (get config :categories)
-                                 :force force)))
+                                 :force force))
+
+    (retag-library-episodes!
+      [self library]
+      (retag-library-episodes! self library {}))
+    (retag-library-episodes!
+      [_ library {:keys [force]}]
+      (retag-library-episodes! brain catalog library throttler
+                               :threshold (get-in config [:thresholds :retag-episodes])
+                               :force force)))
 
 (defprotocol ICurator
   (start! [self libraries])
@@ -160,7 +214,9 @@
             (retag-library! backend library)
             ;; TODO: Implement tagline generation when ready
             (log/info (format "recategorizing library: %s" (name library)))
-            (recategorize-library! backend library))
+            (recategorize-library! backend library)
+            (log/info (format "tagging episodes for library: %s" (name library)))
+            (retag-library-episodes! backend library))
           (catch Throwable t
             (log/error (with-out-str (print-stack-trace t)))))
         (log/info "skipping curation, not running"))

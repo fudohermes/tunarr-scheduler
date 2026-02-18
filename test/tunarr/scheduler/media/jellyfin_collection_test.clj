@@ -249,3 +249,108 @@
           series (jellyfin/parse-jellyfin-item {:Type "Series" :Id "2" :Name "Test"})]
       (is (= :movie (::media/type movie)))
       (is (= :series (::media/type series))))))
+
+;; --- Episode parsing tests ---
+
+(defn sample-jellyfin-episode []
+  {:Id "ep-789"
+   :Name "The Pilot"
+   :Overview "The very first episode"
+   :Type "Episode"
+   :ProductionYear 2022
+   :HasSubtitles false
+   :PremiereDate "2022-05-10T00:00:00Z"
+   :OfficialRating "TV-MA"
+   :CommunityRating 9.0
+   :CriticRating 88
+   :Tags []
+   :Genres ["Comedy"]
+   :Taglines []
+   :SeriesId "series-456"
+   :ParentIndexNumber 1
+   :IndexNumber 1})
+
+(deftest parse-jellyfin-item-episode-test
+  (testing "parse-jellyfin-item transforms episode data correctly"
+    (let [item (sample-jellyfin-episode)
+          parsed (jellyfin/parse-jellyfin-item item)]
+      (is (= "The Pilot" (::media/name parsed)))
+      (is (= "ep-789" (::media/id parsed)))
+      (is (= :episode (::media/type parsed)))
+      (is (= "series-456" (::media/parent-id parsed)))
+      (is (= 1 (::media/season-number parsed)))
+      (is (= 1 (::media/episode-number parsed))))))
+
+(deftest parse-jellyfin-item-episode-nil-parent-fields-test
+  (testing "movies/series have nil episode fields"
+    (let [parsed (jellyfin/parse-jellyfin-item (sample-jellyfin-movie))]
+      (is (nil? (::media/parent-id parsed)))
+      (is (nil? (::media/season-number parsed)))
+      (is (nil? (::media/episode-number parsed))))))
+
+(deftest fetch-series-episodes-test
+  (testing "jellyfin:fetch-series-episodes fetches and transforms episodes"
+    (with-redefs [http/get (fn [_ _]
+                            {:status 200
+                             :body (cheshire.core/generate-string
+                                   (mock-jellyfin-response
+                                    [(sample-jellyfin-episode)
+                                     (assoc (sample-jellyfin-episode)
+                                            :Id "ep-790"
+                                            :Name "The Second One"
+                                            :IndexNumber 2)]))})]
+      (let [config {:base-url "http://localhost:8096"
+                    :api-key "test-key"}
+            episodes (jellyfin/jellyfin:fetch-series-episodes config "series-456" "lib-123")]
+        (is (= 2 (count episodes)))
+        (is (= :episode (::media/type (first episodes))))
+        (is (= "series-456" (::media/parent-id (first episodes))))
+        (is (= "lib-123" (::media/library-id (first episodes))))))))
+
+(deftest fetch-library-items-includes-episodes-test
+  (testing "jellyfin:fetch-library-items returns series and their episodes"
+    (let [call-count (atom 0)]
+      (with-redefs [http/get (fn [url _]
+                               (swap! call-count inc)
+                               {:status 200
+                                :body (cheshire.core/generate-string
+                                       (if (.contains url "/Shows/")
+                                         ;; Episode fetch
+                                         (mock-jellyfin-response
+                                          [(sample-jellyfin-episode)])
+                                         ;; Top-level fetch
+                                         (mock-jellyfin-response
+                                          [(sample-jellyfin-movie)
+                                           (sample-jellyfin-series)])))})]
+        (let [config {:base-url "http://localhost:8096"
+                      :api-key "test-key"
+                      :libraries {:tv "lib-123"}}
+              items (jellyfin/jellyfin:fetch-library-items config :tv)]
+          ;; Should have: 1 movie + 1 series + 1 episode = 3
+          (is (= 3 (count items)))
+          ;; First two are top-level (movie + series)
+          (is (= :movie (::media/type (first items))))
+          (is (= :series (::media/type (second items))))
+          ;; Last one is the episode
+          (is (= :episode (::media/type (nth items 2))))
+          ;; Should have made 2 HTTP calls: 1 for library items, 1 for series episodes
+          (is (= 2 @call-count)))))))
+
+(deftest fetch-library-items-episode-failure-graceful-test
+  (testing "episode fetch failure doesn't break library fetch"
+    (let [call-count (atom 0)]
+      (with-redefs [http/get (fn [url _]
+                               (swap! call-count inc)
+                               (if (.contains url "/Shows/")
+                                 (throw (Exception. "episode fetch failed"))
+                                 {:status 200
+                                  :body (cheshire.core/generate-string
+                                         (mock-jellyfin-response
+                                          [(sample-jellyfin-series)]))}))]
+        (let [config {:base-url "http://localhost:8096"
+                      :api-key "test-key"
+                      :libraries {:tv "lib-123"}}
+              items (jellyfin/jellyfin:fetch-library-items config :tv)]
+          ;; Should have just the series (episode fetch failed gracefully)
+          (is (= 1 (count items)))
+          (is (= :series (::media/type (first items)))))))))

@@ -44,7 +44,10 @@
       subtitles BOOLEAN,
       premiere DATE,
       kid_friendly BOOLEAN,
-      library_id TEXT REFERENCES library(id)
+      library_id TEXT REFERENCES library(id),
+      parent_id TEXT REFERENCES media(id),
+      season_number INTEGER,
+      episode_number INTEGER
     )"])
   (jdbc/execute! db ["
     CREATE TABLE IF NOT EXISTS tag (
@@ -463,3 +466,118 @@
     (let [media (first (catalog/get-media *test-catalog*))]
       (is (vector? (:tags media)))
       (is (every? keyword? (:tags media))))))
+
+;; --- Episode-level tagging tests ---
+
+(def sample-episode
+  {::media/id "episode-1"
+   ::media/name "The Pilot"
+   ::media/overview "The first episode"
+   ::media/community-rating 88.0
+   ::media/critic-rating 85.0
+   ::media/rating "TV-MA"
+   ::media/type :episode
+   ::media/media-type :episode
+   ::media/production-year 2022
+   ::media/subtitles? false
+   ::media/premiere (LocalDate/of 2022 5 10)
+   ::media/kid-friendly? true
+   ::media/library-id "lib-1"
+   ::media/parent-id "series-1"
+   ::media/season-number 1
+   ::media/episode-number 1
+   ::media/tags [:pilot]
+   ::media/genres [:comedy]
+   ::media/channel-names []
+   ::media/taglines []})
+
+(def sample-episode-2
+  (assoc sample-episode
+         ::media/id "episode-2"
+         ::media/name "The Contest"
+         ::media/episode-number 2
+         ::media/tags []))
+
+(deftest add-and-get-episodes-test
+  (testing "add episodes linked to a series and retrieve them"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    ;; Must add series first (parent FK)
+    (catalog/add-media! *test-catalog* sample-series)
+    (catalog/add-media! *test-catalog* sample-episode)
+    (catalog/add-media! *test-catalog* sample-episode-2)
+
+    (let [episodes (catalog/get-episodes-by-series *test-catalog* "series-1")]
+      (is (= 2 (count episodes)))
+      ;; Should be ordered by season/episode number
+      (is (= "episode-1" (::media/id (first episodes))))
+      (is (= "episode-2" (::media/id (second episodes)))))))
+
+(deftest get-single-episode-test
+  (testing "retrieve a specific episode by series, season, and episode number"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    (catalog/add-media! *test-catalog* sample-series)
+    (catalog/add-media! *test-catalog* sample-episode)
+    (catalog/add-media! *test-catalog* sample-episode-2)
+
+    (let [ep (catalog/get-episode *test-catalog* "series-1" 1 2)]
+      (is (some? ep))
+      (is (= "episode-2" (::media/id ep)))
+      (is (= "The Contest" (::media/name ep))))))
+
+(deftest get-episode-not-found-test
+  (testing "returns nil when episode doesn't exist"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    (catalog/add-media! *test-catalog* sample-series)
+
+    (is (nil? (catalog/get-episode *test-catalog* "series-1" 99 99)))))
+
+(deftest get-media-by-library-excludes-episodes-test
+  (testing "get-media-by-library returns only movies and series, not episodes"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    (catalog/add-media-batch! *test-catalog* [sample-movie sample-series])
+    (catalog/add-media! *test-catalog* sample-episode)
+
+    (let [media (catalog/get-media-by-library *test-catalog* :test-library)]
+      (is (= 2 (count media)))
+      (is (= #{"movie-1" "series-1"}
+             (set (map ::media/id media)))))))
+
+(deftest effective-tags-for-episode-test
+  (testing "effective tags for an episode are the union of series tags and episode tags"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    (catalog/add-media! *test-catalog* sample-series)
+    (catalog/add-media! *test-catalog* sample-episode)
+
+    ;; series-1 has tags [:comedy :family], episode-1 has tags [:pilot]
+    (let [effective (set (catalog/get-effective-tags *test-catalog* "episode-1"))]
+      (is (contains? effective :pilot) "Episode's own tag should be present")
+      (is (contains? effective :comedy) "Inherited series tag should be present")
+      (is (contains? effective :family) "Inherited series tag should be present"))))
+
+(deftest effective-tags-for-movie-test
+  (testing "effective tags for a movie are just its own tags"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    (catalog/add-media! *test-catalog* sample-movie)
+
+    (let [effective (set (catalog/get-effective-tags *test-catalog* "movie-1"))]
+      (is (contains? effective :action))
+      (is (contains? effective :adventure)))))
+
+(deftest effective-tags-episode-without-own-tags-test
+  (testing "episode with no own tags inherits all series tags"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    (catalog/add-media! *test-catalog* sample-series)
+    (catalog/add-media! *test-catalog* sample-episode-2) ; has no tags
+
+    (let [effective (set (catalog/get-effective-tags *test-catalog* "episode-2"))]
+      (is (contains? effective :comedy))
+      (is (contains? effective :family)))))
+
+(deftest batch-insert-episodes-with-series-test
+  (testing "batch insert handles series before episodes for FK ordering"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    ;; Insert episode before series in the batch - should work because batch sorts
+    (catalog/add-media-batch! *test-catalog* [sample-episode sample-series sample-episode-2])
+
+    (let [episodes (catalog/get-episodes-by-series *test-catalog* "series-1")]
+      (is (= 2 (count episodes))))))

@@ -24,6 +24,9 @@
    ::media/premiere         :media/premiere
    ::media/library-id       :media/library_id
    ::media/kid-friendly?    :media/kid_friendly
+   ::media/parent-id        :media/parent_id
+   ::media/season-number    :media/season_number
+   ::media/episode-number   :media/episode_number
    ::media/tags             :tags
    ::media/channel-names    :channels
    ::media/genres           :genres
@@ -50,6 +53,9 @@
    :media/premiere          identity
    :media/library_id        identity
    :media/kid_friendly      identity
+   :media/parent_id         identity
+   :media/season_number     identity
+   :media/episode_number    identity
    :tags                    (comp (partial map keyword) pgarray->vec)
    :channels                (comp (partial map keyword) pgarray->vec)
    :genres                  (comp (partial map keyword) pgarray->vec)
@@ -306,30 +312,35 @@
   "Generate SQL queries to batch insert multiple media items.
 
   This is more efficient than calling sql:add-media for each item individually,
-  as it groups inserts by type and reduces the number of transactions."
+  as it groups inserts by type and reduces the number of transactions.
+  Items are sorted so that series are inserted before their episodes to
+  satisfy the parent_id foreign key constraint."
   [media-items]
-  (let [;; Convert all media to rows
+  (let [;; Sort: non-episodes first (movies, series), then episodes
+        ;; This ensures parent records exist before child FK references
+        sorted-items (sort-by #(if (= :episode (::media/type %)) 1 0) media-items)
+        ;; Convert all media to rows
         rows (mapv (fn [media]
                      (-> media
                          (media->row)
                          (update :media_type name)))
-                   media-items)
+                   sorted-items)
         ;; Collect all tags, genres, channels, taglines across all media
-        all-tags (distinct (mapcat ::media/tags media-items))
-        all-genres (distinct (mapcat ::media/genres media-items))
+        all-tags (distinct (mapcat ::media/tags sorted-items))
+        all-genres (distinct (mapcat ::media/genres sorted-items))
         ;; Build tag/genre/channel/tagline associations per media
         tag-associations (mapcat (fn [{:keys [::media/id ::media/tags]}]
                                    (map (fn [tag] [id (name tag)]) tags))
-                                 media-items)
+                                 sorted-items)
         genre-associations (mapcat (fn [{:keys [::media/id ::media/genres]}]
                                      (map (fn [genre] [id (name genre)]) genres))
-                                   media-items)
+                                   sorted-items)
         channel-associations (mapcat (fn [{:keys [::media/id ::media/channels]}]
                                        (map (fn [channel] [id channel]) channels))
-                                     media-items)
+                                     sorted-items)
         tagline-associations (mapcat (fn [{:keys [::media/id ::media/taglines]}]
                                        (map (fn [tagline] [id tagline]) taglines))
-                                     media-items)]
+                                     sorted-items)]
     (concat
      ;; Insert all unique tags first
      (optional (seq all-tags) [(sql:insert-tags all-tags)])
@@ -388,6 +399,9 @@
               :media.subtitles
               :media.kid_friendly
               :media.library_id
+              :media.parent_id
+              :media.season_number
+              :media.episode_number
               [[:array_agg [:distinct :media_tags.tag]]
                :tags]
               [[:array_agg [:distinct :media_channels.channel]]
@@ -407,6 +421,38 @@
                  [:= :media.id :media_taglines.media_id])
       (group-by :media.id)))
 
+(defn sql:get-top-level-media
+  "Get only movies and series (not episodes) - used by library queries
+   so the curation loop doesn't iterate over episodes."
+  []
+  (-> (sql:get-media)
+      (where [:in :media.media_type ["movie" "series"]])))
+
+(defn sql:get-episodes-by-series
+  [series-id]
+  (-> (sql:get-media)
+      (where [:= :media.parent_id series-id])
+      (order-by [:media.season_number :asc]
+                [:media.episode_number :asc])))
+
+(defn sql:get-episode
+  [series-id season-number episode-number]
+  (-> (sql:get-media)
+      (where [:= :media.parent_id series-id]
+             [:= :media.season_number season-number]
+             [:= :media.episode_number episode-number])))
+
+(defn sql:get-effective-tags
+  "Get the union of an item's own tags and its parent's tags."
+  [media-id]
+  {:union-all [(-> (select :tag)
+                   (from :media_tags)
+                   (where [:= :media_id media-id]))
+               (-> (select [:mt.tag :tag])
+                   (from [:media_tags :mt])
+                   (left-join [:media :child] [:= :child.parent_id :mt.media_id])
+                   (where [:= :child.id media-id]))]})
+
 (defrecord SqlCatalog [executor]
   catalog/Catalog
   (add-media! [_ media]
@@ -420,7 +466,7 @@
 
   (get-media-by-library-id [_ library-id]
     (->> (sql:fetch! executor
-                     (-> (sql:get-media)
+                     (-> (sql:get-top-level-media)
                          (where [:= :media/library_id library-id])))
          (map row->media)))
 
@@ -549,7 +595,40 @@
     (sql:exec! executor (sql:delete-media-category-value! media-id category value)))
 
   (delete-media-category-values! [_ media-id category]
-    (sql:exec! executor (sql:delete-media-category-values! media-id category))))
+    (sql:exec! executor (sql:delete-media-category-values! media-id category)))
+
+  (get-episodes-by-series [_ series-id]
+    (->> (sql:fetch! executor (sql:get-episodes-by-series series-id))
+         (map row->media)))
+
+  (get-episode [_ series-id season-number episode-number]
+    (some->> (sql:fetch! executor (sql:get-episode series-id season-number episode-number))
+             first
+             row->media))
+
+  (get-effective-tags [self media-id]
+    (let [own-tags (catalog/get-media-tags self media-id)
+          media-row (first (map row->media
+                                (sql:fetch! executor
+                                            (-> (sql:get-media)
+                                                (where [:= :media/id media-id])))))
+          parent-tags (when-let [pid (::media/parent-id media-row)]
+                        (catalog/get-media-tags self pid))]
+      (vec (distinct (concat own-tags parent-tags)))))
+
+  (get-effective-categories [self media-id]
+    (let [own-cats (catalog/get-media-categories self media-id)
+          media-row (first (map row->media
+                                (sql:fetch! executor
+                                            (-> (sql:get-media)
+                                                (where [:= :media/id media-id])))))
+          parent-cats (when-let [pid (::media/parent-id media-row)]
+                        (catalog/get-media-categories self pid))]
+      (if parent-cats
+        ;; Episode: inherit parent categories, overridden by own categories per dimension
+        (merge parent-cats own-cats)
+        ;; Non-episode: just own categories
+        own-cats))))
 
 (defmethod catalog/initialize-catalog! :postgresql
   [{:keys [host port user password database worker-count queue-size]

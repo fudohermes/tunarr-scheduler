@@ -33,7 +33,7 @@
 (s/def ::critic-rating (s/nilable rating?))
 (s/def ::rating (s/nilable string?))
 (s/def ::id string?)
-(s/def ::media-type #{:movie :series})
+(s/def ::media-type #{:movie :series :episode})
 (s/def ::production-year year?)
 (s/def ::subtitles boolean?)
 (s/def ::premiere date?)
@@ -46,6 +46,10 @@
 (s/def ::last-run ::timestamp)
 (s/def ::process-timestamps
   (s/map-of ::process-name ::last-run))
+(s/def ::parent-id (s/nilable string?))
+(s/def ::season-number (s/nilable pos-int?))
+(s/def ::episode-number (s/nilable pos-int?))
+
 (s/def ::classification
   (s/keys :req [::tags
                 ::channel-names
@@ -70,5 +74,8 @@
                 ::library-id
                 ::kid-friendly?]
           :opt [::process-timestamps
-                ::classification]))
+                ::classification
+                ::parent-id
+                ::season-number
+                ::episode-number]))
 
