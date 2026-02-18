@@ -65,25 +65,26 @@
    and pushes their current tags to jellyfin-sidekick, which writes NFO files
    and triggers Jellyfin to refresh metadata.
 
-   For series, also syncs effective tags (series tags ∪ episode tags) for each
-   episode."
+   Series (shows) are skipped — Jellyfin does not support tags on show items.
+   Episodes are synced with their effective tags (series tags ∪ episode tags)."
   [catalog config library opts]
   (let [{:keys [report-progress]} opts
         sidekick-url (or (:sidekick-url config)
                         "http://jellyfin-sidekick.arr.svc.cluster.local:8080")
-        media-items (catalog/get-media-by-library catalog library)
-        series-items (filter #(= :series (::media/type %)) media-items)
-        episodes (mapcat #(catalog/get-episodes-by-series catalog (::media/id %))
-                         series-items)
-        all-items (concat media-items episodes)
-        total-count (count all-items)
-        _ (log/info (format "Syncing tags for %d items (%d top-level, %d episodes) in library %s via jellyfin-sidekick"
-                           total-count (count media-items) (count episodes) library))
+        media-items  (catalog/get-media-by-library catalog library)
+        movie-items  (remove #(= :series (::media/type %)) media-items)
+        series-items (filter  #(= :series (::media/type %)) media-items)
+        episodes     (mapcat #(catalog/get-episodes-by-series catalog (::media/id %))
+                             series-items)
+        all-items    (concat movie-items episodes)
+        total-count  (count all-items)
+        _ (log/info (format "Syncing tags for %d items (%d movies, %d episodes, %d series skipped) in library %s via jellyfin-sidekick"
+                           total-count (count movie-items) (count episodes) (count series-items) library))
         _ (log/info "Using jellyfin-sidekick at" {:url sidekick-url})
         results (atom {:synced 0 :failed 0 :errors []})]
 
-    ;; Sync top-level items (movies & series) with their own tags
-    (doseq [[idx item] (map-indexed vector media-items)]
+    ;; Sync movies with their own tags (series are skipped — Jellyfin does not support tags on shows)
+    (doseq [[idx item] (map-indexed vector movie-items)]
       (let [item-id (::media/id item)
             tags (or (catalog/get-media-tags catalog item-id) [])]
         (when report-progress
@@ -99,7 +100,7 @@
             effective-tags (or (catalog/get-effective-tags catalog ep-id) [])]
         (when report-progress
           (report-progress {:phase :syncing-episodes
-                           :current (+ (count media-items) (inc idx))
+                           :current (+ (count movie-items) (inc idx))
                            :total total-count
                            :item ep-id}))
         (sync-item! sidekick-url results ep-id effective-tags)))
