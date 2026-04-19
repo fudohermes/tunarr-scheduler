@@ -4,7 +4,6 @@
    Provides integration with Pseudovision's native scheduling engine,
    tag management, and streaming capabilities."
   (:require [clj-http.client :as http]
-            [cheshire.core :as json]
             [tunarr.scheduler.backends.protocol :as proto]
             [taoensso.timbre :as log]))
 
@@ -28,14 +27,14 @@
       (if (<= 200 (:status response) 299)
         (:body response)
         (do
-          (log/error "Pseudovision API error" 
-                    {:status (:status response)
-                     :url url
-                     :body (:body response)})
+          (log/error "Pseudovision API error"
+                     {:status (:status response)
+                      :url url
+                      :body (:body response)})
           (throw (ex-info "Pseudovision API error"
-                         {:status (:status response)
-                          :url url
-                          :response (:body response)})))))
+                          {:status (:status response)
+                           :url url
+                           :response (:body response)})))))
     (catch clojure.lang.ExceptionInfo e
       (throw e))
     (catch Exception e
@@ -98,7 +97,7 @@
   [config jellyfin-id]
   ;; TODO: Implement this - needs a query endpoint in Pseudovision
   ;; For now, we'll need to query all items and filter
-  (log/warn "find-media-item-by-jellyfin-id not yet optimized" 
+  (log/warn "find-media-item-by-jellyfin-id not yet optimized"
             {:jellyfin-id jellyfin-id})
   nil)
 
@@ -255,14 +254,14 @@
 
 (defrecord PseudovisionBackend [config]
   proto/ChannelBackend
-  
+
   (create-channel [_ channel-spec]
     (log/info "Creating Pseudovision channel" {:name (:name channel-spec)})
     (create-channel! config channel-spec))
-  
+
   (update-channel [_ channel-id updates]
     (update-channel! config channel-id updates))
-  
+
   (delete-channel [_ channel-id]
     (try
       (request! :delete
@@ -271,40 +270,40 @@
       {:success true}
       (catch Exception e
         {:success false :message (.getMessage e)})))
-  
+
   (get-channels [_]
     (list-channels config))
-  
+
   (upload-schedule [this channel-id schedule]
     ;; Convert schedule spec to Pseudovision schedule+slots
-    (log/info "Uploading schedule to Pseudovision" 
+    (log/info "Uploading schedule to Pseudovision"
               {:channel-id channel-id
                :slots (count (:slots schedule))})
-    
+
     ;; Create schedule
     (let [sched (create-schedule! config {:name (:name schedule)})
           schedule-id (:id sched)]
-      
+
       ;; Create slots
       (doseq [[idx slot] (map-indexed vector (:slots schedule))]
         (add-slot! config schedule-id
-                  (assoc slot :slot-index idx)))
-      
+                   (assoc slot :slot-index idx)))
+
       ;; Attach schedule to channel and rebuild
       (update-channel! config channel-id {:schedule-id schedule-id})
       (rebuild-playout! config channel-id {:from "now" :horizon 14})
-      
+
       {:success true :schedule-id schedule-id}))
-  
+
   (get-schedule [_ channel-id]
     (let [channel (get-channel config channel-id)
           schedule-id (:schedule-id channel)]
       (when schedule-id
         (get-schedule config schedule-id))))
-  
+
   (validate-config [_ config]
     (let [base-url (:base-url config)]
-      (if (and base-url (string? base-url) (not (empty? base-url)))
+      (if (and base-url (string? base-url) (not (= "" base-url)))
         (let [health (health-check config)]
           (if (:reachable health)
             {:valid? true :version (:version health)}

@@ -127,7 +127,7 @@
   nil)
 
 (defmethod ig/init-key :tunarr/pseudovision [_ config]
-  (if (and config (:base-url config) (not (empty? (:base-url config))))
+  (if (and config (:base-url config) (not= "" (:base-url config)))
     (do
       (log/info "Initializing Pseudovision backend" {:base-url (:base-url config)})
       (let [client (pseudovision/create config)
@@ -151,8 +151,7 @@
 
 (defmethod ig/init-key :tunarr/backends [_ config]
   (log/info "initializing backends" {:backends (keys config)})
-  (let [enabled-backends (filter (fn [[k v]] (:enabled v)) config)
-        clients (reduce
+  (let [clients (reduce
                  (fn [acc [backend-key backend-config]]
                    (if (:enabled backend-config)
                      (let [client (case backend-key
