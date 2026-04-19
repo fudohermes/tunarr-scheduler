@@ -9,6 +9,7 @@
             [tunarr.scheduler.media.sync :as media-sync]
             [tunarr.scheduler.media.jellyfin-sync :as jellyfin-sync]
             [tunarr.scheduler.media.pseudovision-sync :as pv-sync]
+            [tunarr.scheduler.scheduling.pseudovision :as pv-schedule]
             [tunarr.scheduler.curation.core :as curate]
             [tunarr.scheduler.tunabrain :as tunabrain]
             [tunarr.scheduler.media.catalog :as catalog]))
@@ -259,6 +260,20 @@
                                          (audit-tags!
                                           {:tunabrain tunabrain
                                            :catalog   catalog}))}]
+           ["/channels/:channel-id/schedule" {:post (fn [{{:keys [channel-id]} :path-params
+                                                          :keys [body]}]
+                                                       (try
+                                                         (let [channel-spec (read-json body)
+                                                               horizon (get channel-spec :horizon 14)
+                                                               result (pv-schedule/update-channel-schedule!
+                                                                        pseudovision
+                                                                        (parse-long channel-id)
+                                                                        channel-spec
+                                                                        {:horizon horizon})]
+                                                           (ok result))
+                                                         (catch Exception e
+                                                           (log/error e "Error creating channel schedule")
+                                                           (json-response {:error (.getMessage e)} 500))))}]
            ["/jobs" {:get (fn [_]
                             (ok {:jobs (jobs/list-jobs job-runner)}))}]
            ["/jobs/:job-id" {:get (fn [{{:keys [job-id]} :path-params}]
