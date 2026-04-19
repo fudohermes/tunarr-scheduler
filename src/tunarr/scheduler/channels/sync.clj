@@ -90,13 +90,43 @@
   "Sync all configured channels to Pseudovision.
    
    Args:
-     pv-config - Pseudovision client config
+     pv-client - Pseudovision backend client (PseudovisionBackend record) or config map
      channels - Map of channel-key → channel-spec from config
    
    Returns:
      Map with :created, :updated, :unchanged, :errors counts and details"
-  [pv-config channels]
-  (log/info "Syncing channels to Pseudovision" {:count (count channels)})
+  [pv-client channels]
+  ;; Extract config from client if it's a record, otherwise use as-is
+  (let [pv-config (if (map? pv-client)
+                    pv-client
+                    (:config pv-client))]
+    (log/info "Syncing channels to Pseudovision" 
+              {:count (count channels)
+               :base-url (:base-url pv-config)})
+    
+    (if-not (:base-url pv-config)
+      (do
+        (log/error "Pseudovision base-url not configured!")
+        {:created 0 :updated 0 :unchanged 0 :pending 0 
+         :errors (count channels)
+         :details (map (fn [[k _]] {:channel k :status :error 
+                                    :error "Pseudovision not configured"})
+                      channels)})
+      
+      (let [results (map-indexed
+                      (fn [idx [channel-key channel-spec]]
+                        (let [result (sync-channel! pv-config channel-key channel-spec idx)]
+                          (assoc result :channel channel-key)))
+                      channels)
+            
+            by-status (group-by :status results)]
+        
+        {:created (count (get by-status :created))
+         :updated (count (get by-status :updated))
+         :unchanged (count (get by-status :unchanged))
+         :pending (count (get by-status :pending))
+         :errors (count (get by-status :error))
+         :details results}))))
   
   (let [results (map-indexed
                   (fn [idx [channel-key channel-spec]]
