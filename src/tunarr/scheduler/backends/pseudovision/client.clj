@@ -185,13 +185,32 @@
             (api-url config (str "/api/channels/" channel-id))
             {}))
 
+(defn create-channel!
+  "Create a new channel.
+   
+   Channel data:
+     :name - Channel name
+     :uuid - Channel UUID (optional, will be generated if not provided)
+     :number - Channel number string
+     :description - Channel description (optional)
+   
+   Returns:
+     Created channel with assigned :id"
+  [config channel-data]
+  (request! :post
+            (api-url config "/api/channels")
+            {:content-type :json
+             :form-params channel-data}))
+
 (defn update-channel!
   "Update channel configuration.
    
    Common updates:
-     :schedule-id - Attach a schedule to the channel"
+     :schedule-id - Attach a schedule to the channel
+     :name - Update channel name
+     :number - Update channel number"
   [config channel-id updates]
-  (request! :patch
+  (request! :put
             (api-url config (str "/api/channels/" channel-id))
             {:content-type :json
              :form-params updates}))
@@ -239,15 +258,19 @@
   
   (create-channel [_ channel-spec]
     (log/info "Creating Pseudovision channel" {:name (:name channel-spec)})
-    ;; TODO: Implement based on Pseudovision's POST /api/channels endpoint
-    {:error "Not yet implemented"})
+    (create-channel! config channel-spec))
   
   (update-channel [_ channel-id updates]
     (update-channel! config channel-id updates))
   
   (delete-channel [_ channel-id]
-    ;; TODO: Implement DELETE /api/channels/:id
-    {:success false :message "Not yet implemented"})
+    (try
+      (request! :delete
+                (api-url config (str "/api/channels/" channel-id))
+                {})
+      {:success true}
+      (catch Exception e
+        {:success false :message (.getMessage e)})))
   
   (get-channels [_]
     (list-channels config))
