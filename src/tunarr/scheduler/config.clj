@@ -111,6 +111,7 @@
                           :catalog (ig/ref :tunarr/catalog)
                           :backends (ig/ref :tunarr/backends)
                           :pseudovision (ig/ref :tunarr/pseudovision)
+                          :channels channel-config
                           :logger (ig/ref :tunarr/logger)
                           :curation-config (merge curation-config
                                                   {:channels  channel-config

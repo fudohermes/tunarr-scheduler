@@ -10,6 +10,7 @@
             [tunarr.scheduler.media.jellyfin-sync :as jellyfin-sync]
             [tunarr.scheduler.media.pseudovision-sync :as pv-sync]
             [tunarr.scheduler.scheduling.pseudovision :as pv-schedule]
+            [tunarr.scheduler.channels.sync :as channel-sync]
             [tunarr.scheduler.curation.core :as curate]
             [tunarr.scheduler.tunabrain :as tunabrain]
             [tunarr.scheduler.media.catalog :as catalog]))
@@ -192,7 +193,7 @@
 
 (defn handler
   "Create the ring handler for the API."
-  [{:keys [job-runner collection catalog tunabrain throttler curation-config jellyfin-config pseudovision]}]
+  [{:keys [job-runner collection catalog tunabrain throttler curation-config jellyfin-config pseudovision channels]}]
   (let [router
          (ring/router
           [["/healthz" {:get (fn [_] (ok {:status "ok"}))}]
@@ -264,6 +265,13 @@
                                          (audit-tags!
                                           {:tunabrain tunabrain
                                            :catalog   catalog}))}]
+           ["/channels/sync-pseudovision" {:post (fn [_]
+                                                        (try
+                                                          (let [result (channel-sync/sync-all-channels! pseudovision channels)]
+                                                            (ok result))
+                                                          (catch Exception e
+                                                            (log/error e "Error syncing channels to Pseudovision")
+                                                            (json-response {:error (.getMessage e)} 500))))}]
            ["/channels/:channel-id/schedule" {:post (fn [{{:keys [channel-id]} :path-params
                                                           :keys [body]}]
                                                        (try
