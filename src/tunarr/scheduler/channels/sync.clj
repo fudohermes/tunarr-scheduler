@@ -69,7 +69,7 @@
             (do
               (log/info "Updating Pseudovision channel" 
                        {:channel channel-key :uuid uuid :changes pv-spec})
-              (pv/update-channel! config (:channels/id existing) pv-spec)
+              (pv/update-channel! pv-config (:channels/id existing) pv-spec)
               {:status :updated :channel-id (:channels/id existing)})
             (do
               (log/debug "Channel already synced" {:channel channel-key :uuid uuid})
@@ -79,7 +79,7 @@
         (do
           (log/info "Creating Pseudovision channel" 
                    {:channel channel-key :spec pv-spec})
-          (let [created (pv/create-channel! config pv-spec)]
+          (let [created (pv/create-channel! pv-config pv-spec)]
             {:status :created :channel-id (:channels/id created)}))))
     
     (catch Exception e
