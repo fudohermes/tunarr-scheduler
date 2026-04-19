@@ -127,18 +127,24 @@
   nil)
 
 (defmethod ig/init-key :tunarr/pseudovision [_ config]
-  (log/info "Initializing Pseudovision backend" {:base-url (:base-url config)})
-  (let [client (pseudovision/create config)
-        validation (backend-protocol/validate-config client config)]
-    (if (:valid? validation)
-      (do
-        (log/info "Pseudovision backend validated successfully" 
-                  {:version (:version validation)})
-        client)
-      (do
-        (log/error "Pseudovision backend validation failed" 
-                   {:errors (:errors validation)})
-        (throw (ex-info "Pseudovision validation failed" validation))))))
+  (if (and config (:base-url config) (not (empty? (:base-url config))))
+    (do
+      (log/info "Initializing Pseudovision backend" {:base-url (:base-url config)})
+      (let [client (pseudovision/create config)
+            validation (backend-protocol/validate-config client config)]
+        (if (:valid? validation)
+          (do
+            (log/info "Pseudovision backend validated successfully" 
+                      {:version (:version validation)})
+            client)
+          (do
+            (log/error "Pseudovision backend validation failed" 
+                       {:errors (:errors validation)})
+            (throw (ex-info "Pseudovision validation failed" validation))))))
+    (do
+      (log/warn "Pseudovision backend not configured - skipping initialization" 
+                {:config config})
+      nil)))
 
 (defmethod ig/halt-key! :tunarr/pseudovision [_ client]
   (log/info "Shutting down Pseudovision backend")
