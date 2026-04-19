@@ -8,6 +8,7 @@
             [tunarr.scheduler.jobs.runner :as jobs]
             [tunarr.scheduler.media.sync :as media-sync]
             [tunarr.scheduler.media.jellyfin-sync :as jellyfin-sync]
+            [tunarr.scheduler.media.pseudovision-sync :as pv-sync]
             [tunarr.scheduler.curation.core :as curate]
             [tunarr.scheduler.tunabrain :as tunabrain]
             [tunarr.scheduler.media.catalog :as catalog]))
@@ -134,6 +135,18 @@
       (log/error e "Error submitting Jellyfin sync job" {:library library})
       (json-response {:error (.getMessage e)} 500))))
 
+(defn- submit-pseudovision-sync-job!
+  [{:keys [job-runner catalog pseudovision]} {:keys [library]}]
+  (try
+    (submit-job! job-runner
+                 :media/pseudovision-sync
+                 library
+                 "library not specified for pseudovision sync"
+                 (fn [opts] (pv-sync/sync-library-tags! catalog pseudovision library opts)))
+    (catch Exception e
+      (log/error e "Error submitting Pseudovision sync job" {:library library})
+      (json-response {:error (.getMessage e)} 500))))
+
 (defn- audit-tags!
   "Audit all tags with Tunabrain and remove unsuitable ones."
   [{:keys [tunabrain catalog]}]
@@ -178,7 +191,7 @@
 
 (defn handler
   "Create the ring handler for the API."
-  [{:keys [job-runner collection catalog tunabrain throttler curation-config jellyfin-config]}]
+  [{:keys [job-runner collection catalog tunabrain throttler curation-config jellyfin-config pseudovision]}]
   (let [router
         (ring/router
          [["/healthz" {:get (fn [_] (ok {:status "ok"}))}]
@@ -236,6 +249,12 @@
                                                               :catalog    catalog
                                                               :jellyfin-config jellyfin-config}
                                                              {:library    library}))}]
+            ["/media/:library/sync-pseudovision-tags" {:post (fn [{{:keys [library]} :path-params}]
+                                                                (submit-pseudovision-sync-job!
+                                                                 {:job-runner job-runner
+                                                                  :catalog    catalog
+                                                                  :pseudovision pseudovision}
+                                                                 {:library library}))}]
            ["/media/tags/audit" {:post (fn [_]
                                          (audit-tags!
                                           {:tunabrain tunabrain
