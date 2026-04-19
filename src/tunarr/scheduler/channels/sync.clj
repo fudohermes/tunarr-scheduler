@@ -121,27 +121,12 @@
             
             by-status (group-by :status results)]
         
-        {:created (count (get by-status :created))
-         :updated (count (get by-status :updated))
-         :unchanged (count (get by-status :unchanged))
-         :pending (count (get by-status :pending))
-         :errors (count (get by-status :error))
-         :details results}))))
-  
-  (let [results (map-indexed
-                  (fn [idx [channel-key channel-spec]]
-                    (let [result (sync-channel! pv-config channel-key channel-spec idx)]
-                      (assoc result :channel channel-key)))
-                  channels)
-        
-        by-status (group-by :status results)]
-    
-    {:created (count (get by-status :created))
-     :updated (count (get by-status :updated))
-     :unchanged (count (get by-status :unchanged))
-     :pending (count (get by-status :pending))
-     :errors (count (get by-status :error))
-     :details results}))
+         {:created (count (get by-status :created))
+          :updated (count (get by-status :updated))
+          :unchanged (count (get by-status :unchanged))
+          :pending (count (get by-status :pending))
+          :errors (count (get by-status :error))
+          :details results}))))
 
 (defn- channels-from-config
   "Extract channels map from system config."
