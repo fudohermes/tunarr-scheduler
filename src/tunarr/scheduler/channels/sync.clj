@@ -19,9 +19,9 @@
 
 (defn- generate-channel-number
   "Generate a channel number for a channel without one.
-   Uses 900-999 range for scheduler-managed channels."
+   Uses 2-15 range for primary channels (14 channels total)."
   [idx]
-  (str (+ 900 idx)))
+  (str (+ 2 idx)))
 
 (defn- channel-spec->pseudovision
   "Convert tunarr-scheduler channel spec to Pseudovision format.
