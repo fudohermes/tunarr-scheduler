@@ -77,11 +77,13 @@
                                             (update-key :description ::media/channel-description identity)
                                             (update-key :name ::media/channel-fullname identity))]))
                              (get config :channels {}))
-        backends-config (get config :backends {})]
+        backends-config (get config :backends {})
+        pseudovision-config (get config :pseudovision {})]
     {:tunarr/logger {:level (get config :log-level :info)}
      :tunarr/job-runner (get config :jobs {})
      :tunarr/tunabrain-throttler (get-in config [:tunabrain :throttler])
      :tunarr/tunabrain (:tunabrain config)
+     :tunarr/pseudovision pseudovision-config
      :tunarr/backends backends-config
      ;; TODO: Add tts, media-source, tunarr-source, scheduler, and bumpers configs when implemented
      :tunarr/collection collection-config
@@ -108,6 +110,7 @@
                           :collection (ig/ref :tunarr/collection)
                           :catalog (ig/ref :tunarr/catalog)
                           :backends (ig/ref :tunarr/backends)
+                          :pseudovision (ig/ref :tunarr/pseudovision)
                           :logger (ig/ref :tunarr/logger)
                           :curation-config (merge curation-config
                                                   {:channels  channel-config

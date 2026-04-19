@@ -15,7 +15,8 @@
             [tunarr.scheduler.tunabrain :as tunabrain]
             [tunarr.scheduler.backends.protocol :as backend-protocol]
             [tunarr.scheduler.backends.ersatztv.client :as ersatztv]
-            [tunarr.scheduler.backends.tunarr.client :as tunarr-backend]))
+            [tunarr.scheduler.backends.tunarr.client :as tunarr-backend]
+            [tunarr.scheduler.backends.pseudovision.client :as pseudovision]))
 
 (defmethod ig/init-key :tunarr/logger [_ {:keys [level]}]
   (log/set-level! level)
@@ -125,6 +126,24 @@
   (log/info "shutting down channel sync")
   nil)
 
+(defmethod ig/init-key :tunarr/pseudovision [_ config]
+  (log/info "Initializing Pseudovision backend" {:base-url (:base-url config)})
+  (let [client (pseudovision/create config)
+        validation (backend-protocol/validate-config client config)]
+    (if (:valid? validation)
+      (do
+        (log/info "Pseudovision backend validated successfully" 
+                  {:version (:version validation)})
+        client)
+      (do
+        (log/error "Pseudovision backend validation failed" 
+                   {:errors (:errors validation)})
+        (throw (ex-info "Pseudovision validation failed" validation))))))
+
+(defmethod ig/halt-key! :tunarr/pseudovision [_ client]
+  (log/info "Shutting down Pseudovision backend")
+  nil)
+
 (defmethod ig/init-key :tunarr/backends [_ config]
   (log/info "initializing backends" {:backends (keys config)})
   (let [enabled-backends (filter (fn [[k v]] (:enabled v)) config)
@@ -172,7 +191,7 @@
   (log/info "bumpers service shutdown disabled (not yet implemented)")
   nil)
 
-(defmethod ig/init-key :tunarr/http-server [_ {:keys [port scheduler media tts bumpers tunarr catalog logger job-runner collection tunabrain throttler backends curation-config jellyfin-config]}]
+(defmethod ig/init-key :tunarr/http-server [_ {:keys [port scheduler media tts bumpers tunarr catalog logger job-runner collection tunabrain throttler backends curation-config jellyfin-config pseudovision]}]
   ;; TODO: Add scheduler, media, tts, bumpers, and tunarr dependencies when implemented
   (http/start! {:port port
                 :job-runner job-runner
@@ -181,6 +200,7 @@
                 :tunabrain tunabrain
                 :throttler throttler
                 :backends backends
+                :pseudovision pseudovision
                 :curation-config curation-config
                 :jellyfin-config jellyfin-config}))
 
