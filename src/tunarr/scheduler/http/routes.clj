@@ -70,10 +70,10 @@
                  library
                  "library not specified for retag"
                  (fn [opts] (curate/retag-library!
-                              (curate/->TunabrainCuratorBackend
-                                tunabrain catalog throttler config)
-                              library
-                              {:force force})))
+                             (curate/->TunabrainCuratorBackend
+                              tunabrain catalog throttler config)
+                             library
+                             {:force force})))
     (catch Exception e
       (log/error e "Error submitting retag job" {:library library})
       (json-response {:error (.getMessage e)} 500))))
@@ -85,10 +85,10 @@
                  :media/taglines
                  library
                  "library not specified for taglines"
-                 (fn [opts] (curate/generate-library-taglines! 
-                              (curate/->TunabrainCuratorBackend 
-                                tunabrain catalog throttler config)
-                              library)))
+                 (fn [opts] (curate/generate-library-taglines!
+                             (curate/->TunabrainCuratorBackend
+                              tunabrain catalog throttler config)
+                             library)))
     (catch Exception e
       (log/error e "Error submitting tagline job" {:library library})
       (json-response {:error (.getMessage e)} 500))))
@@ -101,10 +101,10 @@
                  library
                  "library not specified for recategorize"
                  (fn [opts] (curate/recategorize-library!
-                              (curate/->TunabrainCuratorBackend
-                                tunabrain catalog throttler config)
-                              library
-                              {:force force})))
+                             (curate/->TunabrainCuratorBackend
+                              tunabrain catalog throttler config)
+                             library
+                             {:force force})))
     (catch Exception e
       (log/error e "Error submitting recategorize job" {:library library})
       (json-response {:error (.getMessage e)} 500))))
@@ -117,10 +117,10 @@
                  library
                  "library not specified for episode retagging"
                  (fn [_opts] (curate/retag-library-episodes!
-                               (curate/->TunabrainCuratorBackend
-                                 tunabrain catalog throttler config)
-                               library
-                               {:force force})))
+                              (curate/->TunabrainCuratorBackend
+                               tunabrain catalog throttler config)
+                              library
+                              {:force force})))
     (catch Exception e
       (log/error e "Error submitting episode retag job" {:library library})
       (json-response {:error (.getMessage e)} 500))))
@@ -181,11 +181,11 @@
     (let [libraries (:libraries jellyfin-config)]
       (if libraries
         (ok {:libraries (into {}
-                             (map (fn [[name id]]
-                                    [(clojure.core/name name)
-                                     {:name (clojure.core/name name)
-                                      :id id}])
-                                  libraries))})
+                              (map (fn [[name id]]
+                                     [(clojure.core/name name)
+                                      {:name (clojure.core/name name)
+                                       :id id}])
+                                   libraries))})
         (ok {:libraries {}})))
     (catch Exception e
       (log/error e "Error listing libraries")
@@ -194,14 +194,15 @@
 (defn handler
   "Create the ring handler for the API."
   [{:keys [job-runner collection catalog tunabrain throttler curation-config jellyfin-config pseudovision channels]}]
-  (let [router
-         (ring/router
-          [["/healthz" {:get (fn [_] (ok {:status "ok"}))}]
-           ["/api/version" {:get (fn [_] 
-                                   (ok {:git-commit (System/getenv "GIT_COMMIT")
-                                        :git-timestamp (System/getenv "GIT_TIMESTAMP")
-                                        :version-tag (System/getenv "VERSION_TAG")}))}]
-           ["/api"
+  (let [_ (println (format "PSEUDOVISION CONFIG: %s" pseudovision))
+        router
+        (ring/router
+         [["/healthz" {:get (fn [_] (ok {:status "ok"}))}]
+          ["/api/version" {:get (fn [_]
+                                  (ok {:git-commit (System/getenv "GIT_COMMIT")
+                                       :git-timestamp (System/getenv "GIT_TIMESTAMP")
+                                       :version-tag (System/getenv "VERSION_TAG")}))}]
+          ["/api"
            ["/media/libraries" {:get (fn [_]
                                        (list-libraries!
                                         {:jellyfin-config jellyfin-config}))}]
@@ -212,7 +213,7 @@
                                                 :catalog    catalog}
                                                {:library    library}))}]
            ["/media/:library/retag" {:post (fn [{{:keys [library]} :path-params
-                                              :keys [query-params]}]
+                                                 :keys [query-params]}]
                                              (submit-retag-job!
                                               {:job-runner job-runner
                                                :catalog    catalog
@@ -221,71 +222,71 @@
                                                :config     curation-config}
                                               {:library    library
                                                :force      (= "true" (get query-params "force"))}))}]
-            ["/media/:library/add-taglines" {:post (fn [{{:keys [library]} :path-params}]
-                                                     (submit-tagline-job!
-                                                      {:job-runner job-runner
-                                                       :catalog    catalog
-                                                       :tunabrain  tunabrain
-                                                       :throttler  throttler
-                                                       :config     curation-config}
-                                                      {:library    library}))}]
-            ["/media/:library/recategorize" {:post (fn [{{:keys [library]} :path-params
-                                                      :keys [query-params]}]
-                                                     (submit-recategorize-job!
-                                                      {:job-runner job-runner
-                                                       :catalog    catalog
-                                                       :tunabrain  tunabrain
-                                                       :throttler  throttler
-                                                       :config     curation-config}
-                                                      {:library    library
-                                                       :force      (= "true" (get query-params "force"))}))}]
-            ["/media/:library/retag-episodes" {:post (fn [{{:keys [library]} :path-params
-                                                                                           :keys [query-params]}]
-                                                            (submit-retag-episodes-job!
-                                                             {:job-runner job-runner
-                                                              :catalog    catalog
-                                                              :tunabrain  tunabrain
-                                                              :throttler  throttler
-                                                              :config     curation-config}
-                                                             {:library    library
-                                                              :force      (= "true" (get query-params "force"))}))}]
-            ["/media/:library/sync-jellyfin-tags" {:post (fn [{{:keys [library]} :path-params}]
-                                                            (submit-jellyfin-sync-job!
-                                                             {:job-runner job-runner
-                                                              :catalog    catalog
-                                                              :jellyfin-config jellyfin-config}
-                                                             {:library    library}))}]
-            ["/media/:library/sync-pseudovision-tags" {:post (fn [{{:keys [library]} :path-params}]
-                                                                (submit-pseudovision-sync-job!
-                                                                 {:job-runner job-runner
-                                                                  :catalog    catalog
-                                                                  :pseudovision pseudovision}
-                                                                 {:library library}))}]
+           ["/media/:library/add-taglines" {:post (fn [{{:keys [library]} :path-params}]
+                                                    (submit-tagline-job!
+                                                     {:job-runner job-runner
+                                                      :catalog    catalog
+                                                      :tunabrain  tunabrain
+                                                      :throttler  throttler
+                                                      :config     curation-config}
+                                                     {:library    library}))}]
+           ["/media/:library/recategorize" {:post (fn [{{:keys [library]} :path-params
+                                                        :keys [query-params]}]
+                                                    (submit-recategorize-job!
+                                                     {:job-runner job-runner
+                                                      :catalog    catalog
+                                                      :tunabrain  tunabrain
+                                                      :throttler  throttler
+                                                      :config     curation-config}
+                                                     {:library    library
+                                                      :force      (= "true" (get query-params "force"))}))}]
+           ["/media/:library/retag-episodes" {:post (fn [{{:keys [library]} :path-params
+                                                          :keys [query-params]}]
+                                                      (submit-retag-episodes-job!
+                                                       {:job-runner job-runner
+                                                        :catalog    catalog
+                                                        :tunabrain  tunabrain
+                                                        :throttler  throttler
+                                                        :config     curation-config}
+                                                       {:library    library
+                                                        :force      (= "true" (get query-params "force"))}))}]
+           ["/media/:library/sync-jellyfin-tags" {:post (fn [{{:keys [library]} :path-params}]
+                                                          (submit-jellyfin-sync-job!
+                                                           {:job-runner job-runner
+                                                            :catalog    catalog
+                                                            :jellyfin-config jellyfin-config}
+                                                           {:library    library}))}]
+           ["/media/:library/sync-pseudovision-tags" {:post (fn [{{:keys [library]} :path-params}]
+                                                              (submit-pseudovision-sync-job!
+                                                               {:job-runner job-runner
+                                                                :catalog    catalog
+                                                                :pseudovision pseudovision}
+                                                               {:library library}))}]
            ["/media/tags/audit" {:post (fn [_]
                                          (audit-tags!
                                           {:tunabrain tunabrain
                                            :catalog   catalog}))}]
            ["/channels/sync-pseudovision" {:post (fn [_]
-                                                        (try
-                                                          (let [result (channel-sync/sync-all-channels! pseudovision channels)]
-                                                            (ok result))
-                                                          (catch Exception e
-                                                            (log/error e "Error syncing channels to Pseudovision")
-                                                            (json-response {:error (.getMessage e)} 500))))}]
+                                                   (try
+                                                     (let [result (channel-sync/sync-all-channels! pseudovision channels)]
+                                                       (ok result))
+                                                     (catch Exception e
+                                                       (log/error e "Error syncing channels to Pseudovision")
+                                                       (json-response {:error (.getMessage e)} 500))))}]
            ["/channels/:channel-id/schedule" {:post (fn [{{:keys [channel-id]} :path-params
                                                           :keys [body]}]
-                                                       (try
-                                                         (let [channel-spec (read-json body)
-                                                               horizon (get channel-spec :horizon 14)
-                                                               result (pv-schedule/update-channel-schedule!
-                                                                        pseudovision
-                                                                        (parse-long channel-id)
-                                                                        channel-spec
-                                                                        {:horizon horizon})]
-                                                           (ok result))
-                                                         (catch Exception e
-                                                           (log/error e "Error creating channel schedule")
-                                                           (json-response {:error (.getMessage e)} 500))))}]
+                                                      (try
+                                                        (let [channel-spec (read-json body)
+                                                              horizon (get channel-spec :horizon 14)
+                                                              result (pv-schedule/update-channel-schedule!
+                                                                      pseudovision
+                                                                      (parse-long channel-id)
+                                                                      channel-spec
+                                                                      {:horizon horizon})]
+                                                          (ok result))
+                                                        (catch Exception e
+                                                          (log/error e "Error creating channel schedule")
+                                                          (json-response {:error (.getMessage e)} 500))))}]
            ["/jobs" {:get (fn [_]
                             (ok {:jobs (jobs/list-jobs job-runner)}))}]
            ["/jobs/:job-id" {:get (fn [{{:keys [job-id]} :path-params}]

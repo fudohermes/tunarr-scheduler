@@ -323,3 +323,22 @@
   [config]
   (log/info "Creating Pseudovision backend client" {:base-url (:base-url config)})
   (->PseudovisionBackend config))
+
+(defn get-config
+  [client]
+  (:config client))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
