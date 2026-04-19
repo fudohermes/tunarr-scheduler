@@ -1,12 +1,10 @@
 {:log-level #or [#env LOG_LEVEL :debug]
  :server {:port #or [#env PORT 8080]}
- :backends {:ersatztv {:enabled #or [#env ERSATZTV_ENABLED true]
-                       :base-url #or [#env ERSATZTV_URL "http://localhost:8409"]
-                       :auto-sync #or [#env ERSATZTV_AUTO_SYNC false]
-                       :default-streaming-mode "HLS Segmenter"}
-            :tunarr {:enabled #or [#env TUNARR_ENABLED false]
-                     :base-url #or [#env TUNARR_URL "http://localhost:8000"]
-                     :auto-sync false}}
+ :pseudovision {:base-url #or [#env PSEUDOVISION_URL "http://localhost:8080"]
+                :auto-sync #or [#env PSEUDOVISION_AUTO_SYNC true]
+                ;; Map tunarr-scheduler library names to Pseudovision collection IDs
+                ;; This is optional - if not specified, will create new collections
+                :library-mappings {}}
  :jellyfin {:base-url #or [#env JELLYFIN_URL "http://localhost:8096"]
             :api-key #or [#env JELLYFIN_API_KEY "change-me"]
             :library-ids []}
