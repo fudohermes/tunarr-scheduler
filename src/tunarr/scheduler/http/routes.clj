@@ -194,9 +194,13 @@
   "Create the ring handler for the API."
   [{:keys [job-runner collection catalog tunabrain throttler curation-config jellyfin-config pseudovision]}]
   (let [router
-        (ring/router
-         [["/healthz" {:get (fn [_] (ok {:status "ok"}))}]
-          ["/api"
+         (ring/router
+          [["/healthz" {:get (fn [_] (ok {:status "ok"}))}]
+           ["/api/version" {:get (fn [_] 
+                                   (ok {:git-commit (System/getenv "GIT_COMMIT")
+                                        :git-timestamp (System/getenv "GIT_TIMESTAMP")
+                                        :version-tag (System/getenv "VERSION_TAG")}))}]
+           ["/api"
            ["/media/libraries" {:get (fn [_]
                                        (list-libraries!
                                         {:jellyfin-config jellyfin-config}))}]
