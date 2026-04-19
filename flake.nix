@@ -34,10 +34,26 @@
             src = ./.;
           };
 
-          deployContainer = helpers.deployContainers {
+          deployContainer = let
+            # Get git commit timestamp for versioning
+            gitTimestamp = if self ? lastModified then
+              toString self.lastModified
+            else
+              "unknown";
+            # Create version tag from timestamp (YYYYMMDD format)
+            versionTag = if self ? lastModified then
+              builtins.substring 0 8 gitTimestamp
+            else
+              "dev";
+          in helpers.deployContainers {
             name = "tunarr-scheduler";
             repo = "registry.kube.sea.fudo.link";
-            tags = [ "latest" ];
+            tags = [ "latest" versionTag ];
+            env = {
+              GIT_COMMIT = self.rev or self.dirtyRev or "unknown";
+              GIT_TIMESTAMP = gitTimestamp;
+              VERSION_TAG = versionTag;
+            };
             entrypoint =
               let tunarrScheduler = self.packages."${system}".tunarrScheduler;
               in [ "${tunarrScheduler}/bin/tunarr-scheduler" ];
