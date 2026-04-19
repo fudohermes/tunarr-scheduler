@@ -134,17 +134,16 @@
             validation (backend-protocol/validate-config client config)]
         (if (:valid? validation)
           (do
-            (log/info "Pseudovision backend validated successfully" 
+            (log/info "Pseudovision backend validated successfully"
                       {:version (:version validation)})
             client)
           (do
-            (log/error "Pseudovision backend validation failed" 
+            (log/error "Pseudovision backend validation failed"
                        {:errors (:errors validation)})
             (throw (ex-info "Pseudovision validation failed" validation))))))
-    (do
-      (log/warn "Pseudovision backend not configured - skipping initialization" 
-                {:config config})
-      nil)))
+    (do (log/warn "Pseudovision backend not configured - skipping initialization"
+                  {:config config})
+        nil)))
 
 (defmethod ig/halt-key! :tunarr/pseudovision [_ client]
   (log/info "Shutting down Pseudovision backend")
