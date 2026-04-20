@@ -581,3 +581,80 @@
 
     (let [episodes (catalog/get-episodes-by-series *test-catalog* "series-1")]
       (is (= 2 (count episodes))))))
+
+;; --- Upsert behavior tests (Pseudovision re-sync scenario) ---
+
+(deftest upsert-updates-scalar-fields-test
+  (testing "add-media! on an existing id refreshes scalar fields"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    (catalog/add-media! *test-catalog* sample-movie)
+
+    (catalog/add-media! *test-catalog*
+                        (assoc sample-movie
+                               ::media/name "Renamed Movie"
+                               ::media/overview "Updated overview"
+                               ::media/community-rating 99.0))
+
+    (let [m (first (catalog/get-media-by-id *test-catalog* "movie-1"))]
+      (is (= "Renamed Movie" (:media/name m)))
+      (is (= "Updated overview" (:media/overview m)))
+      (is (= 99.0 (:media/community_rating m))))))
+
+(deftest upsert-preserves-curation-tags-test
+  (testing "upserting an item does not drop tags added later by curation"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    (catalog/add-media! *test-catalog* sample-movie)
+
+    ;; Simulate curation adding an LLM-generated tag.
+    (catalog/add-media-tags! *test-catalog* "movie-1" [:llm-inferred])
+
+    ;; Re-sync from upstream — incoming payload has the original tags only.
+    (catalog/add-media! *test-catalog* sample-movie)
+
+    (let [tags (set (catalog/get-media-tags *test-catalog* "movie-1"))]
+      (is (contains? tags :llm-inferred) "curation tag must be preserved")
+      (is (contains? tags :action) "upstream tag still present")
+      (is (contains? tags :adventure) "upstream tag still present"))))
+
+(deftest upsert-merges-new-upstream-tags-test
+  (testing "new tags from the upstream payload are merged into existing set"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    (catalog/add-media! *test-catalog* sample-movie)
+    (catalog/add-media-tags! *test-catalog* "movie-1" [:llm-inferred])
+
+    (catalog/add-media! *test-catalog*
+                        (update sample-movie ::media/tags conj :new-upstream-tag))
+
+    (let [tags (set (catalog/get-media-tags *test-catalog* "movie-1"))]
+      (is (contains? tags :new-upstream-tag))
+      (is (contains? tags :llm-inferred))
+      (is (contains? tags :action)))))
+
+(deftest upsert-preserves-categories-test
+  (testing "upsert does not disturb media_categorization entries"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    (catalog/add-media! *test-catalog* sample-movie)
+    (catalog/add-media-category-values! *test-catalog* "movie-1" :mood [:exciting :intense])
+
+    (catalog/add-media! *test-catalog*
+                        (assoc sample-movie ::media/name "Renamed"))
+
+    (let [vals (set (catalog/get-media-category-values *test-catalog* "movie-1" :mood))]
+      (is (= #{:exciting :intense} vals)))))
+
+(deftest upsert-batch-refreshes-existing-and-inserts-new-test
+  (testing "add-media-batch! upserts existing rows and inserts new ones"
+    (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
+    (catalog/add-media! *test-catalog* sample-movie)
+    (catalog/add-media-tags! *test-catalog* "movie-1" [:curated])
+
+    (catalog/add-media-batch! *test-catalog*
+                              [(assoc sample-movie ::media/name "Movie v2")
+                               sample-series])
+
+    (let [movie  (first (catalog/get-media-by-id *test-catalog* "movie-1"))
+          series (first (catalog/get-media-by-id *test-catalog* "series-1"))
+          tags   (set (catalog/get-media-tags *test-catalog* "movie-1"))]
+      (is (= "Movie v2" (:media/name movie)))
+      (is (= "Test Series" (:media/name series)))
+      (is (contains? tags :curated) "curation tag survives batch upsert"))))
