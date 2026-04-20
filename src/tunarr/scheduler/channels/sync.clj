@@ -46,7 +46,7 @@
 (defn- find-channel-by-uuid
   "Find a Pseudovision channel by UUID."
   [pv-channels uuid]
-  (first (filter #(= (str (:channels/uuid %)) uuid) pv-channels)))
+  (first (filter #(= (:uuid %) uuid) pv-channels)))
 
 (defn sync-channel!
   "Sync a single channel to Pseudovision.
@@ -56,7 +56,7 @@
   [pv-config channel-key channel-spec idx]
   (try
     (let [pv-spec (channel-spec->pseudovision channel-key channel-spec idx)
-          uuid (:uuid pv-spec)
+          uuid (-> pv-spec :uuid (parse-uuid))
           existing-channels (pv/list-channels pv-config)
           existing (find-channel-by-uuid existing-channels uuid)]
 
