@@ -289,7 +289,26 @@
 (defn optional [pred lst]
   (if pred lst []))
 
+(def media-upsert-columns
+  "Scalar columns on the `media` table that are sourced from upstream
+  (Jellyfin / Pseudovision) and are safe to overwrite when a later sync
+  delivers fresh data for an existing `media.id`.
+
+  Metadata generated inside the scheduler (tags, channels, genres,
+  taglines, categorization) lives in join tables and is preserved
+  because the join-table inserts use `on-conflict do-nothing`, which
+  merges new associations in without touching existing ones."
+  [:name :overview :community_rating :critic_rating :rating :media_type
+   :production_year :subtitles :premiere :library_id :kid_friendly
+   :parent_id :season_number :episode_number])
+
 (defn sql:add-media
+  "Upsert a single media item.
+
+  On `media.id` conflict, scalar columns in [[media-upsert-columns]] are
+  refreshed from the incoming row while join-table associations
+  (`media_tags`, `media_channels`, `media_genres`, `media_taglines`) are
+  merged additively — existing curation metadata is preserved."
   [{:keys [::media/id
            ::media/tags
            ::media/channels
@@ -298,23 +317,30 @@
     :as media}]
   (let [row (-> media
                 (media->row)
-                (update :media_type name))]
+                (update :media_type name))
+        update-cols (filterv #(contains? row %) media-upsert-columns)
+        base (-> (insert-into :media) (values [row]) (on-conflict :id))]
     (concat (optional (seq tags) [(sql:insert-tags tags)])
             (optional (seq genres) [(sql:insert-genres genres)])
-            [(-> (insert-into :media) (values [row])
-                 (on-conflict :id) (do-nothing))]
+            [(if (seq update-cols)
+               (apply do-update-set base update-cols)
+               (do-nothing base))]
             (optional (seq tags) [(sql:insert-media-tags id tags)])
             (optional (seq genres) [(sql:insert-media-genres id genres)])
             (optional (seq channels) [(sql:insert-media-channels id channels)])
             (optional (seq taglines) [(sql:insert-media-taglines id taglines)]))))
 
 (defn sql:add-media-batch
-  "Generate SQL queries to batch insert multiple media items.
+  "Generate SQL queries to batch upsert multiple media items.
 
   This is more efficient than calling sql:add-media for each item individually,
   as it groups inserts by type and reduces the number of transactions.
   Items are sorted so that series are inserted before their episodes to
-  satisfy the parent_id foreign key constraint."
+  satisfy the parent_id foreign key constraint.
+
+  Upsert semantics match [[sql:add-media]]: scalar media columns are
+  refreshed from the incoming batch, while join-table metadata is merged
+  additively so curation data is preserved."
   [media-items]
   (let [;; Sort: non-episodes first (movies, series), then episodes
         ;; This ensures parent records exist before child FK references
@@ -346,11 +372,16 @@
      (optional (seq all-tags) [(sql:insert-tags all-tags)])
      ;; Insert all unique genres
      (optional (seq all-genres) [(sql:insert-genres all-genres)])
-     ;; Batch insert all media rows
-     [(-> (insert-into :media)
-          (values rows)
-          (on-conflict :id)
-          (do-nothing))]
+     ;; Batch upsert all media rows. Only refresh columns that every
+     ;; row in the batch provides — honey.sql pads missing keys with
+     ;; NULL, and we don't want an upsert to clobber existing fields
+     ;; because some sibling item in the batch happened to omit them.
+     [(let [update-cols (filterv (fn [col] (every? #(contains? % col) rows))
+                                  media-upsert-columns)
+            base (-> (insert-into :media) (values rows) (on-conflict :id))]
+        (if (seq update-cols)
+          (apply do-update-set base update-cols)
+          (do-nothing base)))]
      ;; Batch insert tag associations
      (optional (seq tag-associations)
                [(-> (insert-into :media_tags)
