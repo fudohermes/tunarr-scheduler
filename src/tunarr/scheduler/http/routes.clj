@@ -9,6 +9,7 @@
             [tunarr.scheduler.media.sync :as media-sync]
             [tunarr.scheduler.media.jellyfin-sync :as jellyfin-sync]
             [tunarr.scheduler.media.pseudovision-sync :as pv-sync]
+            [tunarr.scheduler.media.pseudovision-migration :as pv-migration]
             [tunarr.scheduler.scheduling.pseudovision :as pv-schedule]
             [tunarr.scheduler.channels.sync :as channel-sync]
             [tunarr.scheduler.curation.core :as curate]
@@ -141,12 +142,46 @@
   [{:keys [job-runner catalog pseudovision]} {:keys [library]}]
   (try
     (submit-job! job-runner
-                 :media/pseudovision-sync
+                 :media/jellyfin-sync
                  library
                  "library not specified for pseudovision sync"
-                 (fn [opts] (pv-sync/sync-library-tags! catalog pseudovision library opts)))
+                 (fn [opts] (pv-sync/sync-library-tags! catalog
+                                                         pseudovision
+                                                         library)))
     (catch Exception e
       (log/error e "Error submitting Pseudovision sync job" {:library library})
+      (json-response {:error (.getMessage e)} 500))))
+
+(defn- migrate-to-pseudovision!
+  "Run the one-time migration from local catalog to Pseudovision."
+  [{:keys [catalog pseudovision]} body]
+  (try
+    (let [params (or body {})
+          dry-run? (get params :dry-run false)
+          include-categories? (get params :include-categories true)
+          batch-size (get params :batch-size 10)
+          delay-ms (get params :delay-ms 100)]
+      
+      (log/info "Starting Pseudovision migration" 
+                {:dry-run dry-run? 
+                 :batch-size batch-size
+                 :include-categories include-categories?})
+      
+      (let [result (pv-migration/migrate-all! 
+                     catalog 
+                     pseudovision
+                     {:dry-run dry-run?
+                      :include-categories include-categories?
+                      :batch-size batch-size
+                      :delay-ms delay-ms})]
+        
+        (ok (assoc result :message 
+                   (if dry-run?
+                     "Dry run complete - no changes made"
+                     "Migration complete")))))
+    
+    (catch Exception e
+      (log/error e "Error during Pseudovision migration")
       (json-response {:error (.getMessage e)} 500))))
 
 (defn- audit-tags!
@@ -256,16 +291,21 @@
                                                             :catalog    catalog
                                                             :jellyfin-config jellyfin-config}
                                                            {:library    library}))}]
-           ["/media/:library/sync-pseudovision-tags" {:post (fn [{{:keys [library]} :path-params}]
-                                                              (submit-pseudovision-sync-job!
-                                                               {:job-runner job-runner
-                                                                :catalog    catalog
-                                                                :pseudovision pseudovision}
-                                                               {:library library}))}]
-           ["/media/tags/audit" {:post (fn [_]
-                                         (audit-tags!
-                                          {:tunabrain tunabrain
-                                           :catalog   catalog}))}]
+            ["/media/:library/sync-pseudovision-tags" {:post (fn [{{:keys [library]} :path-params}]
+                                                               (submit-pseudovision-sync-job!
+                                                                {:job-runner job-runner
+                                                                 :catalog    catalog
+                                                                 :pseudovision pseudovision}
+                                                                {:library library}))}]
+            ["/media/migrate-to-pseudovision" {:post (fn [{:keys [body]}]
+                                                        (migrate-to-pseudovision!
+                                                         {:catalog catalog
+                                                          :pseudovision pseudovision}
+                                                         (read-json body)))}]
+            ["/media/tags/audit" {:post (fn [_]
+                                          (audit-tags!
+                                           {:tunabrain tunabrain
+                                            :catalog   catalog}))}]
            ["/channels/sync-pseudovision" {:post (fn [_]
                                                    (try
                                                      (let [result (channel-sync/sync-all-channels! pseudovision channels)]
