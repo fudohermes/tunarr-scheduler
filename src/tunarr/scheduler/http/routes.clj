@@ -12,6 +12,7 @@
             [tunarr.scheduler.media.pseudovision-migration :as pv-migration]
             [tunarr.scheduler.scheduling.pseudovision :as pv-schedule]
             [tunarr.scheduler.channels.sync :as channel-sync]
+            [tunarr.scheduler.backends.pseudovision.client :as pv-client]
             [tunarr.scheduler.curation.core :as curate]
             [tunarr.scheduler.tunabrain :as tunabrain]
             [tunarr.scheduler.media.catalog :as catalog]))
@@ -160,7 +161,9 @@
           dry-run? (get params :dry-run false)
           include-categories? (get params :include-categories true)
           batch-size (get params :batch-size 10)
-          delay-ms (get params :delay-ms 100)]
+          delay-ms (get params :delay-ms 100)
+          ;; Extract config from PseudovisionBackend client
+          pv-config (pv-client/get-config pseudovision)]
       
       (log/info "Starting Pseudovision migration" 
                 {:dry-run dry-run? 
@@ -169,7 +172,7 @@
       
       (let [result (pv-migration/migrate-all! 
                      catalog 
-                     pseudovision
+                     pv-config
                      {:dry-run dry-run?
                       :include-categories include-categories?
                       :batch-size batch-size
