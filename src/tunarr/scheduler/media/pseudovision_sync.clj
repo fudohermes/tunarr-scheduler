@@ -13,17 +13,34 @@
 
 (defn- build-jellyfin-id-map
   "Build a map of Jellyfin ID → Pseudovision media_item for fast lookup.
-   
-   This is needed because tunarr-scheduler's catalog uses Jellyfin IDs,
-   but Pseudovision uses its own media_item IDs.
-   
+
+   Lists all libraries and their items, requesting the remote-key attribute
+   so each item can be matched back to its Jellyfin ID.
+
    Returns map: {jellyfin-id → {:id media-item-id, ...}}"
   [pv-config]
   (log/info "Building Jellyfin ID → Pseudovision media_item mapping")
-  ;; TODO: This needs an efficient endpoint in Pseudovision
-  ;; For now, return empty map - will need manual mapping or query optimization
-  (log/warn "Jellyfin ID mapping not yet implemented - needs Pseudovision query endpoint")
-  {})
+  (try
+    (let [libraries (pv/list-all-libraries pv-config)]
+      (log/info "Scanning libraries for Jellyfin ID mapping" {:count (count libraries)})
+      (reduce
+        (fn [acc lib]
+          (try
+            (let [items (pv/list-library-items pv-config (:id lib) {:attrs "remote-key"})]
+              (reduce (fn [m item]
+                        (if-let [jf-id (:remote-key item)]
+                          (assoc m (str jf-id) item)
+                          m))
+                      acc
+                      items))
+            (catch Exception e
+              (log/warn e "Failed to list items for library" {:library-id (:id lib)})
+              acc)))
+        {}
+        libraries))
+    (catch Exception e
+      (log/error e "Failed to build Jellyfin ID map")
+      {})))
 
 ;; ---------------------------------------------------------------------------
 ;; Tag Sync

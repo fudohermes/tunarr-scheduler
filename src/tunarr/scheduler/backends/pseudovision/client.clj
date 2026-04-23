@@ -1,6 +1,6 @@
 (ns tunarr.scheduler.backends.pseudovision.client
   "Pseudovision IPTV platform HTTP client.
-   
+
    Provides integration with Pseudovision's native scheduling engine,
    tag management, and streaming capabilities."
   (:require [clj-http.client :as http]
@@ -47,12 +47,12 @@
 
 (defn add-tags!
   "Add tags to a media item in Pseudovision.
-   
+
    Args:
      config - Pseudovision config map with :base-url
      media-item-id - Pseudovision media_items.id
      tags - Vector of tag strings
-   
+
    Returns:
      Response map with :item-id and :tags-added"
   [config media-item-id tags]
@@ -63,7 +63,7 @@
 
 (defn get-tags
   "Get all tags for a media item.
-   
+
    Returns vector of tag strings."
   [config media-item-id]
   (request! :get
@@ -79,7 +79,7 @@
 
 (defn list-all-tags
   "List all unique tags with usage counts.
-   
+
    Returns vector of maps: [{:name 'comedy' :count 42} ...]"
   [config]
   (request! :get
@@ -87,26 +87,168 @@
             {}))
 
 ;; ---------------------------------------------------------------------------
-;; Media Discovery
+;; Media Sources
 ;; ---------------------------------------------------------------------------
 
-(defn find-media-item-by-jellyfin-id
-  "Find a Pseudovision media item by its Jellyfin remote_key.
-   
-   Returns media item map or nil if not found."
-  [config jellyfin-id]
-  ;; TODO: Implement this - needs a query endpoint in Pseudovision
-  ;; For now, we'll need to query all items and filter
-  (log/warn "find-media-item-by-jellyfin-id not yet optimized"
-            {:jellyfin-id jellyfin-id})
-  nil)
-
-(defn get-collections
-  "List all collections (smart/manual/playlist)."
+(defn list-media-sources
+  "List all configured media sources (local, plex, jellyfin, emby)."
   [config]
   (request! :get
-            (api-url config "/api/collections")
+            (api-url config "/api/media/sources")
             {}))
+
+(defn create-media-source!
+  "Create a new media source.
+
+   source-data fields:
+     :name - Source name
+     :kind - 'local', 'plex', 'jellyfin', or 'emby'
+     :connection-config - Backend-specific connection map (optional)
+     :path-replacements - Vector of path replacement maps (optional)"
+  [config source-data]
+  (request! :post
+            (api-url config "/api/media/sources")
+            {:content-type :json
+             :form-params source-data}))
+
+(defn delete-media-source!
+  "Delete a media source by ID."
+  [config source-id]
+  (request! :delete
+            (api-url config (str "/api/media/sources/" source-id))
+            {}))
+
+;; ---------------------------------------------------------------------------
+;; Libraries
+;; ---------------------------------------------------------------------------
+
+(defn list-all-libraries
+  "List all media libraries across all sources."
+  [config]
+  (request! :get
+            (api-url config "/api/media/libraries")
+            {}))
+
+(defn list-source-libraries
+  "List all libraries for a specific media source."
+  [config source-id]
+  (request! :get
+            (api-url config (str "/api/media/sources/" source-id "/libraries"))
+            {}))
+
+(defn create-library!
+  "Create a library under a media source.
+
+   library-data fields:
+     :name - Library name
+     :kind - 'movies', 'shows', 'music_videos', 'other_videos', 'songs', or 'images'
+     :external-id - Backend-specific ID (optional)
+     :should-sync - Whether to sync this library (optional)"
+  [config source-id library-data]
+  (request! :post
+            (api-url config (str "/api/media/sources/" source-id "/libraries"))
+            {:content-type :json
+             :form-params library-data}))
+
+(defn discover-libraries!
+  "Discover and create libraries from a remote media source.
+
+   Returns map with :discovered, :created, and :libraries counts."
+  [config source-id]
+  (request! :post
+            (api-url config (str "/api/media/sources/" source-id "/libraries/discover"))
+            {}))
+
+(defn list-library-items
+  "List media items in a library.
+
+   opts fields:
+     :attrs - Comma-separated attribute names to include in response
+     :type - Filter by media type string
+     :parent-id - Filter by parent item ID
+
+   Returns vector of item maps (guaranteed to have :id)."
+  [config library-id & [{:keys [attrs type parent-id]}]]
+  (request! :get
+            (api-url config (str "/api/media/libraries/" library-id "/items"))
+            {:query-params (cond-> {}
+                             attrs     (assoc "attrs" attrs)
+                             type      (assoc "type" type)
+                             parent-id (assoc "parent-id" (str parent-id)))}))
+
+(defn scan-library!
+  "Trigger an asynchronous library scan.
+
+   Returns map with :message."
+  [config library-id]
+  (request! :post
+            (api-url config (str "/api/media/libraries/" library-id "/scan"))
+            {}))
+
+;; ---------------------------------------------------------------------------
+;; Media Items
+;; ---------------------------------------------------------------------------
+
+(defn get-media-item
+  "Get a media item by ID."
+  [config item-id]
+  (request! :get
+            (api-url config (str "/api/media/items/" item-id))
+            {}))
+
+(defn get-media-item-playback-url
+  "Resolve a direct playback URL for a media item.
+
+   Returns map with :url (string or nil) and :kind."
+  [config item-id]
+  (request! :get
+            (api-url config (str "/api/media/items/" item-id "/playback-url"))
+            {}))
+
+(defn find-media-item-by-jellyfin-id
+  "Find a Pseudovision media item by its Jellyfin remote-key.
+
+   Scans all libraries for the matching item. Returns the first match or nil.
+   Pass :library-id in opts to narrow the search to a single library."
+  [config jellyfin-id & [{:keys [library-id]}]]
+  (try
+    (let [libraries (if library-id
+                      [{:id library-id}]
+                      (list-all-libraries config))]
+      (loop [libs libraries]
+        (when (seq libs)
+          (let [items (list-library-items config (:id (first libs)) {:attrs "remote-key"})]
+            (if-let [match (some #(when (= (str (:remote-key %)) (str jellyfin-id)) %) items)]
+              match
+              (recur (rest libs)))))))
+    (catch Exception e
+      (log/error e "find-media-item-by-jellyfin-id failed" {:jellyfin-id jellyfin-id})
+      nil)))
+
+;; ---------------------------------------------------------------------------
+;; Collections
+;; ---------------------------------------------------------------------------
+
+(defn get-collections
+  "List all collections (smart/manual/playlist/multi/trakt/rerun)."
+  [config]
+  (request! :get
+            (api-url config "/api/media/collections")
+            {}))
+
+(defn create-collection!
+  "Create a new collection.
+
+   collection-data fields:
+     :name - Collection name (required)
+     :kind - 'manual', 'smart', 'playlist', 'multi', 'trakt', or 'rerun' (optional)
+     :use-custom-playback-order - Boolean (optional)
+     :config - Kind-specific config map (optional)"
+  [config collection-data]
+  (request! :post
+            (api-url config "/api/media/collections")
+            {:content-type :json
+             :form-params collection-data}))
 
 ;; ---------------------------------------------------------------------------
 ;; Schedule Management
@@ -114,11 +256,11 @@
 
 (defn create-schedule!
   "Create a new schedule.
-   
+
    Args:
      config - Pseudovision config
-     schedule-data - Map with :name and optional :description
-   
+     schedule-data - Map with :name and optional scheduling fields
+
    Returns:
      Created schedule with :id"
   [config schedule-data]
@@ -127,9 +269,50 @@
             {:content-type :json
              :form-params schedule-data}))
 
+(defn get-schedule
+  "Get schedule by ID."
+  [config schedule-id]
+  (request! :get
+            (api-url config (str "/api/schedules/" schedule-id))
+            {}))
+
+(defn list-schedules
+  "List all schedules."
+  [config]
+  (request! :get
+            (api-url config "/api/schedules")
+            {}))
+
+(defn update-schedule!
+  "Update an existing schedule.
+
+   schedule-data fields (all optional):
+     :name - Schedule name
+     :fixed-start-time-behavior - 'skip' or 'play'
+     :shuffle-slots - Boolean
+     :random-start-point - Boolean
+     :keep-multi-part-together - Boolean
+     :treat-collections-as-shows - Boolean"
+  [config schedule-id schedule-data]
+  (request! :put
+            (api-url config (str "/api/schedules/" schedule-id))
+            {:content-type :json
+             :form-params schedule-data}))
+
+(defn delete-schedule!
+  "Delete a schedule by ID."
+  [config schedule-id]
+  (request! :delete
+            (api-url config (str "/api/schedules/" schedule-id))
+            {}))
+
+;; ---------------------------------------------------------------------------
+;; Slot Management
+;; ---------------------------------------------------------------------------
+
 (defn add-slot!
   "Add a slot to a schedule.
-   
+
    Slot data fields:
      :slot-index - Position in schedule (0-based)
      :anchor - 'fixed' or 'sequential'
@@ -143,7 +326,7 @@
      :excluded-tags - Vector of tags (item must have NONE)
      :playback-order - 'chronological', 'random', 'shuffle', 'semi-sequential', etc.
      :marathon-batch-size - For semi-sequential mode
-   
+
    Returns:
      Created slot with :id"
   [config schedule-id slot-data]
@@ -152,18 +335,33 @@
             {:content-type :json
              :form-params slot-data}))
 
-(defn get-schedule
-  "Get schedule details including slots."
+(defn list-slots
+  "List all slots for a schedule."
   [config schedule-id]
   (request! :get
-            (api-url config (str "/api/schedules/" schedule-id))
+            (api-url config (str "/api/schedules/" schedule-id "/slots"))
             {}))
 
-(defn list-schedules
-  "List all schedules."
-  [config]
+(defn get-slot
+  "Get a single slot by schedule ID and slot ID."
+  [config schedule-id slot-id]
   (request! :get
-            (api-url config "/api/schedules")
+            (api-url config (str "/api/schedules/" schedule-id "/slots/" slot-id))
+            {}))
+
+(defn update-slot!
+  "Update a slot. slot-data is a partial map of any slot fields."
+  [config schedule-id slot-id slot-data]
+  (request! :put
+            (api-url config (str "/api/schedules/" schedule-id "/slots/" slot-id))
+            {:content-type :json
+             :form-params slot-data}))
+
+(defn delete-slot!
+  "Delete a slot by schedule ID and slot ID."
+  [config schedule-id slot-id]
+  (request! :delete
+            (api-url config (str "/api/schedules/" schedule-id "/slots/" slot-id))
             {}))
 
 ;; ---------------------------------------------------------------------------
@@ -171,11 +369,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn list-channels
-  "List all channels."
-  [config]
+  "List all channels. Pass {:uuid uuid-str} to filter by UUID."
+  [config & [{:keys [uuid]}]]
   (request! :get
             (api-url config "/api/channels")
-            {}))
+            (cond-> {} uuid (assoc :query-params {"uuid" uuid}))))
 
 (defn get-channel
   "Get channel by ID."
@@ -186,13 +384,13 @@
 
 (defn create-channel!
   "Create a new channel.
-   
+
    Channel data:
      :name - Channel name
      :uuid - Channel UUID (optional, will be generated if not provided)
      :number - Channel number string
      :description - Channel description (optional)
-   
+
    Returns:
      Created channel with assigned :id"
   [config channel-data]
@@ -203,7 +401,7 @@
 
 (defn update-channel!
   "Update channel configuration.
-   
+
    Common updates:
      :schedule-id - Attach a schedule to the channel
      :name - Update channel name
@@ -214,13 +412,20 @@
             {:content-type :json
              :form-params updates}))
 
+(defn get-playout
+  "Get the playout record for a channel, including build status and cursor."
+  [config channel-id]
+  (request! :get
+            (api-url config (str "/api/channels/" channel-id "/playout"))
+            {}))
+
 (defn rebuild-playout!
   "Trigger playout rebuild for a channel.
-   
+
    Options:
      :from - 'now' (delete all future events) or 'horizon' (extend future)
      :horizon - Number of days to generate (default 14)
-   
+
    Returns:
      Map with :message, :events-generated, :horizon-days"
   [config channel-id & [{:keys [from horizon] :or {from "now" horizon 14}}]]
@@ -229,12 +434,100 @@
             {:query-params {"from" from "horizon" (str horizon)}}))
 
 ;; ---------------------------------------------------------------------------
+;; Playout Events
+;; ---------------------------------------------------------------------------
+
+(defn list-playout-events
+  "List upcoming scheduled playout events for a channel."
+  [config channel-id]
+  (request! :get
+            (api-url config (str "/api/channels/" channel-id "/playout/events"))
+            {}))
+
+(defn inject-manual-event!
+  "Inject a manual event into the playout timeline.
+
+   event-data fields:
+     :media-item-id - Media item ID (required)
+     :start-at - ISO-8601 timestamp (required)
+     :finish-at - ISO-8601 timestamp (required)
+     :kind - 'content', 'pre', 'mid', 'post', 'pad', 'tail', 'fallback', or 'offline'
+     :guide-start-at - ISO-8601 timestamp for EPG (optional)
+     :guide-finish-at - ISO-8601 timestamp for EPG (optional)
+     :custom-title - Override title (optional)"
+  [config channel-id event-data]
+  (request! :post
+            (api-url config (str "/api/channels/" channel-id "/playout/events"))
+            {:content-type :json
+             :form-params event-data}))
+
+(defn update-manual-event!
+  "Update a manual playout event. event-data is a partial map of event fields."
+  [config channel-id event-id event-data]
+  (request! :put
+            (api-url config (str "/api/channels/" channel-id "/playout/events/" event-id))
+            {:content-type :json
+             :form-params event-data}))
+
+(defn delete-manual-event!
+  "Delete a manual playout event."
+  [config channel-id event-id]
+  (request! :delete
+            (api-url config (str "/api/channels/" channel-id "/playout/events/" event-id))
+            {}))
+
+;; ---------------------------------------------------------------------------
+;; FFmpeg Profiles
+;; ---------------------------------------------------------------------------
+
+(defn list-ffmpeg-profiles
+  "List all FFmpeg encoder profiles."
+  [config]
+  (request! :get
+            (api-url config "/api/ffmpeg/profiles")
+            {}))
+
+(defn get-ffmpeg-profile
+  "Get an FFmpeg profile by ID."
+  [config profile-id]
+  (request! :get
+            (api-url config (str "/api/ffmpeg/profiles/" profile-id))
+            {}))
+
+(defn create-ffmpeg-profile!
+  "Create a new FFmpeg encoder profile.
+
+   profile-data fields:
+     :name - Profile name (required)
+     :config - Encoder configuration map (optional)"
+  [config profile-data]
+  (request! :post
+            (api-url config "/api/ffmpeg/profiles")
+            {:content-type :json
+             :form-params profile-data}))
+
+(defn update-ffmpeg-profile!
+  "Update an FFmpeg profile. profile-data is a partial map."
+  [config profile-id profile-data]
+  (request! :put
+            (api-url config (str "/api/ffmpeg/profiles/" profile-id))
+            {:content-type :json
+             :form-params profile-data}))
+
+(defn delete-ffmpeg-profile!
+  "Delete an FFmpeg profile. Returns map with :deleted true and :profile."
+  [config profile-id]
+  (request! :delete
+            (api-url config (str "/api/ffmpeg/profiles/" profile-id))
+            {}))
+
+;; ---------------------------------------------------------------------------
 ;; Health & Version
 ;; ---------------------------------------------------------------------------
 
 (defn health-check
   "Check if Pseudovision is reachable and healthy.
-   
+
    Returns map with :status and :version info"
   [config]
   (try
@@ -314,10 +607,10 @@
 
 (defn create
   "Create a Pseudovision backend client.
-   
+
    Config map should include:
      :base-url - Pseudovision API base URL (e.g. 'https://pseudovision.kube.sea.fudo.link')
-   
+
    Returns:
      PseudovisionBackend record implementing ChannelBackend protocol"
   [config]
@@ -327,18 +620,3 @@
 (defn get-config
   [client]
   (:config client))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
