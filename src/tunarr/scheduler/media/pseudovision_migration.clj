@@ -109,14 +109,14 @@
       (let [pv-id (:id pv-item)
             
             ;; Build tag list
+            ;; Note: tags are keywords, category tags are strings from flatten-categories-to-tags
             all-tags (vec (concat 
-                           tags
+                           (map name tags)  ;; Convert tag keywords to strings
                            (when include-categories?
-                             (flatten-categories-to-tags categories))))
+                             (flatten-categories-to-tags categories))))  ;; Already strings
             
             ;; Filter out empty tags
-            all-tags (filter #(and % (not (empty? (str %)))) all-tags)
-            all-tags (map name all-tags)]
+            all-tags (filter #(and % (not (empty? (str %)))) all-tags)]
         
         (if (empty? all-tags)
           (do
