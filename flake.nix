@@ -18,6 +18,23 @@
         pkgs = nixpkgs.legacyPackages."${system}";
         helpers = nix-helpers.legacyPackages."${system}";
         cljLibs = { };
+
+        # Version information (git commit + timestamp)
+        versionInfo = let
+          gitCommit = self.rev or self.dirtyRev or "unknown";
+          gitTimestamp = if self ? lastModified then
+          # Format: YYYYMMDD-HHMMSS
+            let
+              ts = toString self.lastModified;
+              # lastModified is Unix epoch, convert to readable format
+              year = builtins.substring 0 4 ts;
+              month = builtins.substring 4 2 ts;
+              day = builtins.substring 6 2 ts;
+            in "${year}${month}${day}"
+          else
+            "dev";
+          versionTag = "${builtins.substring 0 7 gitCommit}-${gitTimestamp}";
+        in { inherit gitCommit gitTimestamp versionTag; };
       in {
         packages = rec {
           default = tunarrScheduler;
@@ -34,25 +51,15 @@
             src = ./.;
           };
 
-          deployContainer = let
-            # Get git commit timestamp for versioning
-            gitTimestamp = if self ? lastModified then
-              toString self.lastModified
-            else
-              "unknown";
-            # Create version tag from timestamp (YYYYMMDD format)
-            versionTag = if self ? lastModified then
-              builtins.substring 0 8 gitTimestamp
-            else
-              "dev";
+          deployContainer = let version = versionInfo;
           in helpers.deployContainers {
             name = "tunarr-scheduler";
             repo = "registry.kube.sea.fudo.link";
-            tags = [ "latest" versionTag ];
+            tags = [ "latest" version.versionTag ];
             env = {
-              GIT_COMMIT = self.rev or self.dirtyRev or "unknown";
-              GIT_TIMESTAMP = gitTimestamp;
-              VERSION_TAG = versionTag;
+              GIT_COMMIT = version.gitCommit;
+              GIT_TIMESTAMP = version.gitTimestamp;
+              VERSION = version.versionTag;
             };
             entrypoint =
               let tunarrScheduler = self.packages."${system}".tunarrScheduler;
@@ -60,15 +67,45 @@
             verbose = true;
           };
 
-          migrationContainer = helpers.deployContainers {
+          deployMigrationContainer = let version = versionInfo;
+          in helpers.deployContainers {
             name = "tunarr-scheduler-migratus";
             repo = "registry.kube.sea.fudo.link";
-            tags = [ "latest" ];
+            tags = [ "latest" version.versionTag ];
+            env = {
+              GIT_COMMIT = version.gitCommit;
+              GIT_TIMESTAMP = version.gitTimestamp;
+              VERSION = version.versionTag;
+            };
             entrypoint =
               let migratus = self.packages."${system}".migratusRunner;
               in [ "${migratus}/bin/tunarr-scheduler-migrate" ];
             verbose = true;
           };
+
+          # Combined deployment of both containers
+          deployContainers = pkgs.writeShellScriptBin "deployContainers" ''
+            set -euo pipefail
+            echo "🚀 Deploying tunarr-scheduler containers"
+            echo "Version: ${versionInfo.versionTag}"
+            echo "Commit: ${versionInfo.gitCommit}"
+            echo "Timestamp: ${versionInfo.gitTimestamp}"
+            echo ""
+
+            echo "📦 Building and pushing primary container..."
+            ${self.packages."${system}".deployContainer}/bin/deployContainers
+
+            echo ""
+            echo "📦 Building and pushing migration container..."
+            ${
+              self.packages."${system}".deployMigrationContainer
+            }/bin/deployContainers
+
+            echo ""
+            echo "✅ Both containers deployed successfully!"
+            echo "  Primary: registry.kube.sea.fudo.link/tunarr-scheduler:${versionInfo.versionTag}"
+            echo "  Migrate: registry.kube.sea.fudo.link/tunarr-scheduler-migratus:${versionInfo.versionTag}"
+          '';
         };
 
         checks = {
@@ -90,18 +127,27 @@
         };
 
         apps = rec {
-          default = deployContainer;
+          default = deployContainers;
+
+          deployContainers = {
+            type = "app";
+            program = "${
+                self.packages."${system}".deployContainers
+              }/bin/deployContainers";
+          };
+
           deployContainer = {
             type = "app";
-            program =
-              let deployContainer = self.packages."${system}".deployContainer;
-              in "${deployContainer}/bin/deployContainers";
+            program = "${
+                self.packages."${system}".deployContainer
+              }/bin/deployContainers";
           };
-          migrationContainer = {
+
+          deployMigrationContainer = {
             type = "app";
-            program = let
-              migrationContainer = self.packages."${system}".migrationContainer;
-            in "${migrationContainer}/bin/deployContainers";
+            program = "${
+                self.packages."${system}".deployMigrationContainer
+              }/bin/deployContainers";
           };
         };
       });
