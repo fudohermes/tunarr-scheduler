@@ -369,7 +369,7 @@
     (catalog/update-libraries! *test-catalog* {:test-library "lib-1"})
     (catalog/add-media! *test-catalog* sample-movie)
 
-    (catalog/add-media-category-value! *test-catalog* "movie-1" :mood :exciting)
+    (catalog/add-media-category-value! *test-catalog* "movie-1" :mood :exciting nil)
 
     (let [values (catalog/get-media-category-values *test-catalog* "movie-1" :mood)]
       (is (= 1 (count values)))
