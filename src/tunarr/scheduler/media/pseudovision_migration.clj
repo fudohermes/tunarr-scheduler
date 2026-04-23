@@ -30,8 +30,11 @@
                         (from :media)))
         
         ;; For each media, get tags and categories
-        results (map (fn [{:keys [id name]}]
-                       (let [tags (catalog/get-media-tags catalog-db id)
+        ;; Note: HoneySQL returns qualified keywords like :media/id and :media/name
+        results (map (fn [row]
+                       (let [id (or (:media/id row) (:id row))
+                             name (or (:media/name row) (:name row))
+                             tags (catalog/get-media-tags catalog-db id)
                              categories (catalog/get-media-categories catalog-db id)]
                          {:jellyfin-id id
                           :name name
