@@ -80,7 +80,9 @@
    ['channel:comedy' 'channel:action' 'time-slot:primetime']"
   [categories]
   (mapcat (fn [[category values]]
-            (map #(str (name category) ":" (name %)) values))
+            (->> values
+                 (filter some?)  ;; Filter out nil values
+                 (map #(str (name category) ":" (name %)))))
           categories))
 
 ;; ---------------------------------------------------------------------------
