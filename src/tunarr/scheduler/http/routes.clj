@@ -10,6 +10,7 @@
             [tunarr.scheduler.media.jellyfin-sync :as jellyfin-sync]
             [tunarr.scheduler.media.pseudovision-sync :as pv-sync]
             [tunarr.scheduler.media.pseudovision-migration :as pv-migration]
+            [tunarr.scheduler.media.pseudovision-media-sync :as pv-media-sync]
             [tunarr.scheduler.scheduling.pseudovision :as pv-schedule]
             [tunarr.scheduler.channels.sync :as channel-sync]
             [tunarr.scheduler.backends.pseudovision.client :as pv-client]
@@ -212,6 +213,51 @@
       (log/error e "Error during tag audit")
       (json-response {:error (.getMessage e)} 500))))
 
+(defn- sync-from-pseudovision!
+  "Sync media items FROM Pseudovision TO catalog."
+  [{:keys [catalog pseudovision]} {:keys [library]}]
+  (try
+    (when-not library
+      (throw (ex-info "library parameter required" {})))
+    
+    (let [pv-config (pv-client/get-config pseudovision)
+          library-kw (keyword library)]
+      
+      (log/info "Syncing from Pseudovision" {:library library})
+      
+      (let [result (pv-media-sync/sync-library-from-pseudovision! 
+                     catalog 
+                     pv-config 
+                     library-kw 
+                     {})]
+        (ok (assoc result :message "Pseudovision sync complete"))))
+    
+    (catch Exception e
+      (log/error e "Error syncing from Pseudovision" {:library library})
+      (json-response {:error (.getMessage e)} 500))))
+
+(defn- migrate-catalog-ids!
+  "Migrate catalog to use Pseudovision IDs instead of Jellyfin IDs."
+  [{:keys [catalog pseudovision]} {:keys [library]}]
+  (try
+    (when-not library
+      (throw (ex-info "library parameter required" {})))
+    
+    (let [pv-config (pv-client/get-config pseudovision)
+          library-kw (keyword library)]
+      
+      (log/info "Migrating catalog IDs to Pseudovision" {:library library})
+      
+      (let [result (pv-media-sync/migrate-catalog-to-pseudovision! 
+                     catalog 
+                     pv-config 
+                     library-kw)]
+        (ok (assoc result :message "Catalog ID migration complete"))))
+    
+    (catch Exception e
+      (log/error e "Error migrating catalog IDs" {:library library})
+      (json-response {:error (.getMessage e)} 500))))
+
 (defn- list-libraries!
   "List all configured libraries."
   [{:keys [jellyfin-config]}]
@@ -305,6 +351,16 @@
                                                          {:catalog catalog
                                                           :pseudovision pseudovision}
                                                          (read-json body)))}]
+            ["/media/:library/sync-from-pseudovision" {:post (fn [{{:keys [library]} :path-params}]
+                                                               (sync-from-pseudovision!
+                                                                {:catalog catalog
+                                                                 :pseudovision pseudovision}
+                                                                {:library library}))}]
+            ["/media/:library/migrate-catalog-ids" {:post (fn [{{:keys [library]} :path-params}]
+                                                            (migrate-catalog-ids!
+                                                             {:catalog catalog
+                                                              :pseudovision pseudovision}
+                                                             {:library library}))}]
             ["/media/tags/audit" {:post (fn [_]
                                           (audit-tags!
                                            {:tunabrain tunabrain
