@@ -6,7 +6,7 @@
    to Pseudovision as the source of truth going forward."
   (:require [tunarr.scheduler.backends.pseudovision.client :as pv]
             [tunarr.scheduler.media.catalog :as catalog]
-            [tunarr.scheduler.sql.executor :as executor]
+            [tunarr.scheduler.media.sql-catalog :as sql-catalog]
             [honey.sql.helpers :refer [select from where]]
             [taoensso.timbre :as log]))
 
@@ -25,7 +25,7 @@
   [catalog-db]
   (let [executor (:executor catalog-db)
         ;; Get all media IDs
-        media-ids (executor/fetch! executor
+        media-ids (sql-catalog/sql:fetch! executor
                     (-> (select :id :name)
                         (from :media)))
         
