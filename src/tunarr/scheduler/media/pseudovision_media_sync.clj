@@ -121,7 +121,7 @@
 
       (catch Exception e
         (log/error e "Failed to sync from Pseudovision")
-        {:synced 0 :skipped 0 :errors [{:error (.getMessage e)}]})))))
+        {:synced 0 :skipped 0 :errors [{:error (.getMessage e)}]}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Migration Helper
@@ -176,11 +176,10 @@
                 (recur (rest remaining)
                        (if found? (inc migrated) migrated)
                        (if (and (not found?) (nil? err)) (inc skipped) skipped)
-                       (if err (conj errors err) errors)))))))
-
+                       (if err (conj errors err) errors))))))))
     (catch Exception e
       (log/error e "Migration failed")
-      {:migrated 0 :skipped 0 :errors [{:error (.getMessage e)}]}))))
+      {:migrated 0 :skipped 0 :errors [{:error (.getMessage e)}]})))
 
 (comment
   ;; Usage example:
