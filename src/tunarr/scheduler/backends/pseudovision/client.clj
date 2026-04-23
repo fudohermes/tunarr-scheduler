@@ -217,8 +217,19 @@
                       (list-all-libraries config))]
       (loop [libs libraries]
         (when (seq libs)
-          (let [items (list-library-items config (:id (first libs)) {:attrs "remote-key"})]
-            (if-let [match (some #(when (= (str (:remote-key %)) (str jellyfin-id)) %) items)]
+          (let [lib (first libs)
+                ;; Wrap individual library search in try-catch to handle failures gracefully
+                match (try
+                        (let [items (list-library-items config (:id lib) {:attrs "remote-key"})]
+                          (some #(when (= (str (:remote-key %)) (str jellyfin-id)) %) items))
+                        (catch Exception e
+                          ;; Log warning but continue searching other libraries
+                          (log/warn "Failed to search library, continuing to next library"
+                                   {:library-id (:id lib)
+                                    :jellyfin-id jellyfin-id
+                                    :error (ex-message e)})
+                          nil))]
+            (if match
               match
               (recur (rest libs)))))))
     (catch Exception e
