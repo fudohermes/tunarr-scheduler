@@ -82,7 +82,7 @@
   (mapcat (fn [[category values]]
             (->> values
                  (filter some?)  ;; Filter out nil values
-                 (map #(str (name category) ":" (name %)))))
+                 (map #(str (clojure.core/name category) ":" (clojure.core/name %)))))
           categories))
 
 ;; ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@
             ;; Build tag list
             ;; Note: tags are keywords, category tags are strings from flatten-categories-to-tags
             all-tags (vec (concat 
-                           (map name tags)  ;; Convert tag keywords to strings
+                           (map clojure.core/name tags)  ;; Convert tag keywords to strings (use fully qualified name to avoid shadowing)
                            (when include-categories?
                              (flatten-categories-to-tags categories))))  ;; Already strings
             
