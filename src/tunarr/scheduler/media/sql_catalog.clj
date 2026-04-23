@@ -260,7 +260,8 @@
   (-> (select :category
               [[:array_agg [:distinct :media_categorization.category_value]] :values])
       (from :media_categorization)
-      (where [:= :media_id media-id])))
+      (where [:= :media_id media-id])
+      (group-by :category)))
 
 (defn sql:delete-media-category-value! [media-id category value]
   (-> (delete-from :media_categorization)
