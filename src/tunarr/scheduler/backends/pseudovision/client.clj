@@ -220,7 +220,7 @@
           (let [lib (first libs)
                 ;; Wrap individual library search in try-catch to handle failures gracefully
                 match (try
-                        (let [items (list-library-items config (:id lib) {:attrs "remote-key"})]
+                        (let [items (list-library-items config (:id lib) {:attrs "id,remote-key"})]
                           (some #(when (= (str (:remote-key %)) (str jellyfin-id)) %) items))
                         (catch Exception e
                           ;; Log warning but continue searching other libraries
