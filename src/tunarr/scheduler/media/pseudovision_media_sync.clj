@@ -102,20 +102,22 @@
                           {:library library :synced synced :skipped skipped})
                 {:synced synced :skipped skipped :errors errors})
 
-              (let [stub (first remaining)]
-                (try
-                  (let [pv-item (if (contains? stub :remote-key)
-                                  stub
-                                  (pv/get-media-item pv-config (:id stub)))
-                        catalog-item (pseudovision-item->catalog-item pv-item)]
-                    (catalog/add-media! catalog catalog-item)
-                    (report-progress {:phase "syncing" :current (inc idx) :total total})
-                    (recur (rest remaining) (inc idx) (inc synced) skipped errors))
-                  (catch Exception e
-                    (log/warn e "Failed to sync item" {:item-id (:id stub)})
-                    (report-progress {:phase "syncing" :current (inc idx) :total total})
-                    (recur (rest remaining) (inc idx) synced skipped
-                           (conj errors {:item-id (:id stub) :error (.getMessage e)}))))))))
+              (let [stub (first remaining)
+                    err  (try
+                           (let [pv-item (if (contains? stub :remote-key)
+                                           stub
+                                           (pv/get-media-item pv-config (:id stub)))]
+                             (catalog/add-media! catalog (pseudovision-item->catalog-item pv-item))
+                             nil)
+                           (catch Exception e
+                             (log/warn e "Failed to sync item" {:item-id (:id stub)})
+                             {:item-id (:id stub) :error (.getMessage e)}))]
+                (report-progress {:phase "syncing" :current (inc idx) :total total})
+                (recur (rest remaining)
+                       (inc idx)
+                       (if err synced (inc synced))
+                       skipped
+                       (if err (conj errors err) errors)))))))
 
       (catch Exception e
         (log/error e "Failed to sync from Pseudovision")
@@ -156,24 +158,25 @@
             (log/info "Migration complete" {:library library :migrated migrated :skipped skipped})
             {:migrated migrated :skipped skipped :errors errors})
 
-          (let [item    (first remaining)
-                jf-id   (:jellyfin-id item)]
+          (let [item  (first remaining)
+                jf-id (:jellyfin-id item)]
             (if-not jf-id
               (recur (rest remaining) migrated (inc skipped) errors)
-              (try
-                (let [pv-item (pv/find-media-item-by-jellyfin-id pv-config jf-id)]
-                  (if pv-item
-                    (do
-                      (catalog/add-media! catalog (assoc item :id (:id pv-item)))
-                      (recur (rest remaining) (inc migrated) skipped errors))
-                    (do
-                      (log/warn "No Pseudovision item found for Jellyfin ID"
-                                {:jellyfin-id jf-id :title (:title item)})
-                      (recur (rest remaining) migrated (inc skipped) errors))))
-                (catch Exception e
-                  (log/error e "Migration failed for item" {:jellyfin-id jf-id})
-                  (recur (rest remaining) migrated skipped
-                         (conj errors {:jellyfin-id jf-id :error (.getMessage e)}))))))))
+              (let [[found? err] (try
+                                   (let [pv-item (pv/find-media-item-by-jellyfin-id pv-config jf-id)]
+                                     (if pv-item
+                                       (do (catalog/add-media! catalog (assoc item :id (:id pv-item)))
+                                           [true nil])
+                                       (do (log/warn "No Pseudovision item found for Jellyfin ID"
+                                                     {:jellyfin-id jf-id :title (:title item)})
+                                           [false nil])))
+                                   (catch Exception e
+                                     (log/error e "Migration failed for item" {:jellyfin-id jf-id})
+                                     [false {:jellyfin-id jf-id :error (.getMessage e)}]))]
+                (recur (rest remaining)
+                       (if found? (inc migrated) migrated)
+                       (if (and (not found?) (nil? err)) (inc skipped) skipped)
+                       (if err (conj errors err) errors)))))))
 
     (catch Exception e
       (log/error e "Migration failed")
