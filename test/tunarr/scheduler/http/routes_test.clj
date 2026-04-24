@@ -333,13 +333,29 @@
 
 ;; 404 Not Found tests
 (deftest not-found-endpoint-test
-  (testing "nonexistent endpoints return 404"
+  (testing "nonexistent endpoints return 404 with JSON error"
     (let [handler (routes/handler {:job-runner *job-runner*
                                    :collection mock-collection
                                    :catalog *catalog*
                                    :tunabrain mock-tunabrain})
-          response (handler (mock/request :get "/api/nonexistent"))]
-      (is (= 404 (:status response))))))
+          response (handler (mock/request :get "/api/nonexistent"))
+          body (parse-json-response response)]
+      (is (= 404 (:status response)))
+      (is (= "application/json" (get-in response [:headers "Content-Type"])))
+      (is (= "Not found" (:error body))))))
+
+;; 405 Method Not Allowed tests
+(deftest method-not-allowed-test
+  (testing "wrong HTTP method returns 405 with JSON error"
+    (let [handler (routes/handler {:job-runner *job-runner*
+                                   :collection mock-collection
+                                   :catalog *catalog*
+                                   :tunabrain mock-tunabrain})
+          response (handler (mock/request :delete "/api/jobs"))
+          body (parse-json-response response)]
+      (is (= 405 (:status response)))
+      (is (= "application/json" (get-in response [:headers "Content-Type"])))
+      (is (= "Method not allowed" (:error body))))))
 
 ;; Edge case: empty library name
 (deftest empty-library-name-test
