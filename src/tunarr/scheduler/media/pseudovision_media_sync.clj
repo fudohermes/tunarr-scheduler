@@ -86,7 +86,7 @@
                            (:id matched)))]
 
         (log/info "Fetching items from Pseudovision library" {:library-id library-id})
-        (let [item-stubs (pv/list-library-items pv-config library-id {:attrs "remote-key,kind,metadata,parent-id"})
+        (let [item-stubs (pv/list-library-items pv-config library-id {:attrs "id,remote-key,kind,name,year,release-date,parent-id"})
               total      (count item-stubs)]
 
           (report-progress {:phase "fetching" :current 0 :total total})
