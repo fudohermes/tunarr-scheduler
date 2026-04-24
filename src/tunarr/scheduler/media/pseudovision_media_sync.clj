@@ -28,11 +28,12 @@
   "Convert a Pseudovision media_item to tunarr-scheduler catalog format.
 
    Preserves Jellyfin ID mapping for tag sync."
-  [pv-item]
+  [pv-item catalog-library-id]
   (let [item-type (if-let [k (:kind pv-item)] (keyword k) :movie)]  ; Default to :movie if kind missing
     {::media/id           (:remote-key pv-item)  ; Use Jellyfin ID as catalog ID
      ::media/name         (:name pv-item)
      ::media/type         item-type
+     ::media/library-id   catalog-library-id    ; TS catalog library ID
      ::media/parent-id    (:parent-id pv-item)
      ::media/production-year (:year pv-item)
      ::media/premiere     (:release-date pv-item)}))
@@ -76,19 +77,28 @@
     (log/info "Syncing media FROM Pseudovision" {:library library})
 
     (try
-      (let [library-id (if (integer? library)
-                         library
-                         ;; Find matching library by kind
-                         (let [all-libs (pv/list-all-libraries pv-config)
-                               lib-kind (name library)
-                               matched  (first (filter #(= (:kind %) lib-kind) all-libs))]
-                           (when-not matched
-                             (throw (ex-info "No matching Pseudovision library found"
-                                             {:library library :available (map :kind all-libs)})))
-                           (:id matched)))]
+      ;; Get catalog library-id using hardcoded mapping
+      ;; TODO: Add library management to catalog protocol for dynamic lookup
+      (let [catalog-lib-id (case library
+                             :movies "f137a2ddb8b63d3e81c6c8c64e1dd01b"  ; From Jellyfin Movies library
+                             :shows  "a656b907e15e23eac612ce0b78afce7d"  ; From Jellyfin Shows library
+                             (throw (ex-info "Unknown library" {:library library})))
+            
+            ;; Find matching Pseudovision library by kind  
+            pv-library-id (if (integer? library)
+                            library
+                            (let [all-libs (pv/list-all-libraries pv-config)
+                                  lib-kind (name library)
+                                  matched  (first (filter #(= (:kind %) lib-kind) all-libs))]
+                              (when-not matched
+                                (throw (ex-info "No matching Pseudovision library found"
+                                                {:library library :available (map :kind all-libs)})))
+                              (:id matched)))]
 
-        (log/info "Fetching items from Pseudovision library" {:library-id library-id})
-        (let [item-stubs (pv/list-library-items pv-config library-id {:attrs "id,remote-key,kind,name,year,release-date,parent-id"})
+        (log/info "Fetching items from Pseudovision library" 
+                  {:pv-library-id pv-library-id :catalog-lib-id catalog-lib-id})
+        
+        (let [item-stubs (pv/list-library-items pv-config pv-library-id {:attrs "id,remote-key,kind,name,year,release-date,parent-id"})
               total      (count item-stubs)]
 
           (report-progress {:phase "fetching" :current 0 :total total})
@@ -109,7 +119,7 @@
                            (let [pv-item (if (contains? stub :remote-key)
                                            stub
                                            (pv/get-media-item pv-config (:id stub)))]
-                             (catalog/add-media! catalog (pseudovision-item->catalog-item pv-item))
+                             (catalog/add-media! catalog (pseudovision-item->catalog-item pv-item catalog-lib-id))
                              nil)
                            (catch Exception e
                              (log/warn e "Failed to sync item" {:item-id (:id stub)})
