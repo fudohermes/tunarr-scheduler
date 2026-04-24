@@ -88,7 +88,7 @@
                              :movies "f137a2ddb8b63d3e81c6c8c64e1dd01b"  ; From Jellyfin Movies library
                              :shows  "a656b907e15e23eac612ce0b78afce7d"  ; From Jellyfin Shows library
                              (throw (ex-info "Unknown library" {:library library})))
-            
+
             ;; Find matching Pseudovision library by kind  
             pv-library-id (if (integer? library)
                             library
@@ -100,9 +100,9 @@
                                                 {:library library :available (map :kind all-libs)})))
                               (:id matched)))]
 
-        (log/info "Fetching items from Pseudovision library" 
+        (log/info "Fetching items from Pseudovision library"
                   {:pv-library-id pv-library-id :catalog-lib-id catalog-lib-id})
-        
+
         (let [item-stubs (pv/list-library-items pv-config pv-library-id {:attrs "id,remote-key,kind,name,year,release-date,parent-id"})
               total      (count item-stubs)]
 
@@ -121,11 +121,7 @@
 
               (let [stub (first remaining)
                     err  (try
-                           (let [pv-item (if (contains? stub :remote-key)
-                                           stub
-                                           (pv/get-media-item pv-config (:id stub)))]
-                             (catalog/add-media! catalog (pseudovision-item->catalog-item pv-item catalog-lib-id))
-                             nil)
+                           (catalog/add-media! catalog (pseudovision-item->catalog-item (pv/get-media-item pv-config (:id stub)) catalog-lib-id))
                            (catch Exception e
                              (log/warn e "Failed to sync item" {:item-id (:id stub)})
                              {:item-id (:id stub) :error (.getMessage e)}))]

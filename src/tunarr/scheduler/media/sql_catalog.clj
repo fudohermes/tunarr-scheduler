@@ -9,7 +9,10 @@
             [honey.sql.helpers :refer [select from where insert-into values on-conflict do-nothing left-join group-by columns do-update-set delete-from order-by] :as sql]
             [next.jdbc :as jdbc]
             [taoensso.timbre :as log])
-  (:import java.sql.Array))
+  (:import java.sql.Array
+           java.time.LocalDate
+           java.util.Date
+           java.time.ZoneId))
 
 (def field-map
   {::media/name             :media/name
@@ -38,6 +41,19 @@
       (vec (seq arr)))
     o))
 
+(defn ->local-date [x]
+  (cond
+    (nil? x) nil
+    (instance? LocalDate x) x
+    (string? x) (LocalDate/parse x) ; expects yyyy-MM-dd
+    (instance? java.sql.Date x) (.toLocalDate ^java.sql.Date x)
+    (instance? Date x) (-> ^Date x
+                           .toInstant
+                           (.atZone (ZoneId/systemDefault))
+                           .toLocalDate)
+    :else (throw (ex-info "Cannot convert to LocalDate"
+                          {:value x :type (type x)}))))
+
 (defn map-over [f] (fn [o] (map f o)))
 
 (def field-transforms
@@ -50,7 +66,7 @@
    :media/media_type        keyword
    :media/production_year   identity
    :media/subtitles         identity
-   :media/premiere          identity
+   :media/premiere          ->local-date
    :media/library_id        identity
    :media/kid_friendly      identity
    :media/parent_id         identity
@@ -168,8 +184,8 @@
   (-> (insert-into :channel)
       (columns :name :full_name :id :description)
       (values (map (fn [[channel {:keys [::media/channel-id
-                                        ::media/channel-fullname
-                                        ::media/channel-description]}]]
+                                         ::media/channel-fullname
+                                         ::media/channel-description]}]]
                      [(name channel) channel-fullname channel-id channel-description])
                    channels))
       (on-conflict :name) (do-update-set :name :full_name :id :description)))
@@ -248,7 +264,7 @@
   (-> (insert-into :media_categorization)
       (columns :media_id :category :category_value :rationale)
       (values (map (fn [{:keys [::media/category-value
-                               ::media/rationale]}]
+                                ::media/rationale]}]
                      [media-id
                       (name category)
                       (name category-value)
@@ -378,7 +394,7 @@
      ;; NULL, and we don't want an upsert to clobber existing fields
      ;; because some sibling item in the batch happened to omit them.
      [(let [update-cols (filterv (fn [col] (every? #(contains? % col) rows))
-                                  media-upsert-columns)
+                                 media-upsert-columns)
             base (-> (insert-into :media) (values rows) (on-conflict :id))]
         (if (seq update-cols)
           (apply do-update-set base update-cols)
@@ -541,7 +557,7 @@
 
   (get-media-process-timestamps [_ {:keys [::media/id]}]
     (map (fn [{:keys [media_process_timestamp/process
-                     media_process_timestamp/last_run_at]}]
+                      media_process_timestamp/last_run_at]}]
            {:media/process-name (keyword "process" process)
             :media/last-run     (.toInstant last_run_at)})
          (sql:fetch! executor (sql:get-media-processes-by-id id))))
