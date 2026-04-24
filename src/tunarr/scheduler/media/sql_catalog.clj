@@ -681,7 +681,7 @@
   (get-library-id [_ library]
     (some-> (sql:fetch! executor (sql:get-library-id library))
             first
-            :library/id))
+            :library/id)))
 
 
 (defmethod catalog/initialize-catalog! :postgresql
