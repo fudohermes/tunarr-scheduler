@@ -30,11 +30,20 @@
    Preserves Jellyfin ID mapping for tag sync."
   [pv-item catalog-library-id]
   (let [item-type (if-let [k (:kind pv-item)] (keyword k) :movie)  ; Default to :movie if kind missing
-        year (:year pv-item)
+        year (or (:year pv-item) 1970)  ; Default to 1970 if year is missing
         ;; Premiere is required - use release-date if available, else construct from year, else use epoch
         premiere (or (:release-date pv-item)
                      (when year (str year "-01-01"))
                      "1970-01-01")]
+    (log/debug "Mapping PV item to catalog"
+               {:pv-id (:id pv-item)
+                :name (:name pv-item)
+                :year year
+                :release-date (:release-date pv-item)
+                :premiere premiere
+                :has-year (contains? pv-item :year)
+                :has-release-date (contains? pv-item :release-date)
+                :all-keys (keys pv-item)})
     {::media/id           (:remote-key pv-item)  ; Use Jellyfin ID as catalog ID
      ::media/name         (:name pv-item)
      ::media/type         item-type
@@ -106,6 +115,11 @@
         (let [item-stubs (pv/list-library-items pv-config pv-library-id {:attrs "id,remote-key,kind,name,year,release-date,parent-id"})
               total      (count item-stubs)]
 
+          (log/info "Starting PV→TS sync"
+                    {:library library
+                     :total-items total
+                     :sample-stub (first item-stubs)})
+
           (report-progress {:phase "fetching" :current 0 :total total})
 
           (loop [remaining item-stubs
@@ -116,14 +130,24 @@
             (if (empty? remaining)
               (do
                 (log/info "Pseudovision media sync complete"
-                          {:library library :synced synced :skipped skipped})
+                          {:library library :synced synced :skipped skipped :errors-count (count errors)})
+                (when (seq errors)
+                  (log/debug "Sample sync errors" {:first-errors (take 3 errors)}))
                 {:synced synced :skipped skipped :errors errors})
 
               (let [stub (first remaining)
+                    full-item (pv/get-media-item pv-config (:id stub))
+                    _ (when (< idx 5)  ; Log first 5 items for debugging
+                        (log/debug "Fetched full PV item"
+                                   {:stub-id (:id stub)
+                                    :item-keys (keys full-item)
+                                    :sample-data (select-keys full-item [:id :name :year :release-date :remote-key :kind])}))
                     err  (try
-                           (catalog/add-media! catalog (pseudovision-item->catalog-item (pv/get-media-item pv-config (:id stub)) catalog-lib-id))
+                           (catalog/add-media! catalog (pseudovision-item->catalog-item full-item catalog-lib-id))
                            (catch Exception e
-                             (log/warn e "Failed to sync item" {:item-id (:id stub)})
+                             (log/warn e "Failed to sync item"
+                                       {:item-id (:id stub)
+                                        :full-item-keys (keys full-item)})
                              {:item-id (:id stub) :error (.getMessage e)}))]
                 (report-progress {:phase "syncing" :current (inc idx) :total total})
                 (recur (rest remaining)
