@@ -31,16 +31,19 @@
   [pv-item catalog-library-id]
   (let [item-type (if-let [k (:kind pv-item)] (keyword k) :movie)  ; Default to :movie if kind missing
         year (or (:year pv-item) 1970)  ; Default to 1970 if year is missing
-        ;; Premiere is required - Pseudovision doesn't store release-date, so construct from year
-        premiere (str year "-01-01")]
+        ;; Premiere is required - use release-date if available, else construct from year
+        premiere (or (:release-date pv-item)
+                     (str year "-01-01"))]
     (log/debug "Mapping PV item to catalog"
                {:pv-id (:id pv-item)
                 :name (:name pv-item)
                 :year year
+                :release-date (:release-date pv-item)
                 :premiere premiere
                 :has-year (contains? pv-item :year)
                 :has-name (contains? pv-item :name)
                 :has-kind (contains? pv-item :kind)
+                :has-release-date (contains? pv-item :release-date)
                 :all-keys (keys pv-item)})
     {::media/id           (:remote-key pv-item)  ; Use Jellyfin ID as catalog ID
      ::media/name         (:name pv-item)
@@ -134,22 +137,18 @@
                 {:synced synced :skipped skipped :errors errors})
 
               (let [stub (first remaining)
-                    full-item (pv/get-media-item pv-config (:id stub))
-                    ;; Merge stub and full item - stub has 'name', full has 'kind' and 'parent-id'
-                    merged-item (merge full-item stub)
+                    item (pv/get-media-item pv-config (:id stub))
                     _ (when (< idx 5)  ; Log first 5 items for debugging
-                        (log/debug "Fetched and merged PV item"
-                                   {:stub-id (:id stub)
-                                    :stub-keys (keys stub)
-                                    :full-keys (keys full-item)
-                                    :merged-keys (keys merged-item)
-                                    :sample-data (select-keys merged-item [:id :name :year :remote-key :kind :parent-id])}))
+                        (log/debug "Fetched PV item"
+                                   {:item-id (:id stub)
+                                    :item-keys (keys item)
+                                    :sample-data (select-keys item [:id :name :year :remote-key :kind :parent-id :release-date])}))
                     err  (try
-                           (catalog/add-media! catalog (pseudovision-item->catalog-item merged-item catalog-lib-id))
+                           (catalog/add-media! catalog (pseudovision-item->catalog-item item catalog-lib-id))
                            (catch Exception e
                              (log/warn e "Failed to sync item"
                                        {:item-id (:id stub)
-                                        :merged-item-keys (keys merged-item)})
+                                        :item-keys (keys item)})
                              {:item-id (:id stub) :error (.getMessage e)}))]
                 (report-progress {:phase "syncing" :current (inc idx) :total total})
                 (recur (rest remaining)
