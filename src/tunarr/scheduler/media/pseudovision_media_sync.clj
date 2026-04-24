@@ -135,7 +135,7 @@
         (log/info "Fetching items from Pseudovision library"
                   {:pv-library-id pv-library-id :catalog-lib-id catalog-lib-id})
 
-        (let [item-stubs (pv/list-library-items pv-config pv-library-id {:attrs "id,remote-key,name,year,parent-id"})
+        (let [item-stubs (pv/list-library-items pv-config pv-library-id {:attrs "id,remote-key,name,year,parent-id,position"})
               total      (count item-stubs)]
 
           (log/info "Starting PV→TS sync"
