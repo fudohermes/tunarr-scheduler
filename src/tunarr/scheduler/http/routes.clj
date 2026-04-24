@@ -392,4 +392,6 @@
                                     (if-let [job (jobs/job-info job-runner job-id)]
                                       (ok {:job job})
                                       (not-found "Job not found")))}]]])]
-    (ring/ring-handler router (ring/create-default-handler))))
+    (ring/ring-handler router (ring/create-default-handler
+                               {:not-found          (constantly (json-response {:error "Not found"} 404))
+                                :method-not-allowed  (constantly (json-response {:error "Method not allowed"} 405))}))))
