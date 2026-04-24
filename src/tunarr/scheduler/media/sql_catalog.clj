@@ -676,7 +676,13 @@
         ;; Episode: inherit parent categories, overridden by own categories per dimension
         (merge parent-cats own-cats)
         ;; Non-episode: just own categories
-        own-cats))))
+        own-cats)))
+
+  (get-library-id [_ library]
+    (some-> (sql:fetch! executor (sql:get-library-id library))
+            first
+            :library/id))
+
 
 (defmethod catalog/initialize-catalog! :postgresql
   [{:keys [host port user password database worker-count queue-size]

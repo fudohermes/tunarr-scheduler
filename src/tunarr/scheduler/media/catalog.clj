@@ -40,7 +40,8 @@
   (get-episodes-by-series [catalog series-id])
   (get-episode [catalog series-id season-number episode-number])
   (get-effective-tags [catalog media-id])
-  (get-effective-categories [catalog media-id]))
+  (get-effective-categories [catalog media-id])
+  (get-library-id [catalog library]))
 
 (defmulti initialize-catalog! :type)
 

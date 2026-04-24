@@ -17,7 +17,6 @@
    - tunarr-scheduler focuses on curation only"
   (:require [tunarr.scheduler.backends.pseudovision.client :as pv]
             [tunarr.scheduler.media.catalog :as catalog]
-            [tunarr.scheduler.media.sql-catalog :as sql-catalog]
             [tunarr.scheduler.media :as media]
             [taoensso.timbre :as log]))
 
@@ -98,7 +97,7 @@
 
     (try
       ;; Get catalog library-id by querying the database
-      (let [catalog-lib-id (sql-catalog/sql:get-library-id catalog library)
+      (let [catalog-lib-id (catalog/get-library-id catalog library)
             _ (log/info "Retrieved catalog library ID"
                         {:library library :catalog-lib-id catalog-lib-id})
             _ (when-not catalog-lib-id
