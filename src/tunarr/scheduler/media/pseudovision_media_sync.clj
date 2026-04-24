@@ -28,12 +28,12 @@
 
    Preserves Jellyfin ID mapping for tag sync."
   [pv-item]
-  {::tunarr.scheduler.media.catalog/id           (:remote-key pv-item)  ; Use Jellyfin ID as catalog ID
-   ::tunarr.scheduler.media.catalog/name         (:name pv-item)
-   ::tunarr.scheduler.media.catalog/type         (when-let [k (:kind pv-item)] (keyword k))
-   ::tunarr.scheduler.media.catalog/parent-id    (:parent-id pv-item)
-   ::tunarr.scheduler.media.catalog/production-year (:year pv-item)
-   ::tunarr.scheduler.media.catalog/premiere     (:release-date pv-item)})
+  {::catalog/id           (:remote-key pv-item)  ; Use Jellyfin ID as catalog ID
+   ::catalog/name         (:name pv-item)
+   ::catalog/type         (when-let [k (:kind pv-item)] (keyword k))
+   ::catalog/parent-id    (:parent-id pv-item)
+   ::catalog/production-year (:year pv-item)
+   ::catalog/premiere     (:release-date pv-item)})
 
 (defn- library-kind->catalog-library
   "Map Pseudovision library kind to tunarr-scheduler library keyword."
