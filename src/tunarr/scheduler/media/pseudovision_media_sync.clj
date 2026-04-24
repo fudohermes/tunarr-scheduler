@@ -17,6 +17,7 @@
    - tunarr-scheduler focuses on curation only"
   (:require [tunarr.scheduler.backends.pseudovision.client :as pv]
             [tunarr.scheduler.media.catalog :as catalog]
+            [tunarr.scheduler.media :as media]
             [taoensso.timbre :as log]))
 
 ;; ---------------------------------------------------------------------------
@@ -29,12 +30,12 @@
    Preserves Jellyfin ID mapping for tag sync."
   [pv-item]
   (let [item-type (if-let [k (:kind pv-item)] (keyword k) :movie)]  ; Default to :movie if kind missing
-    {::catalog/id           (:remote-key pv-item)  ; Use Jellyfin ID as catalog ID
-     ::catalog/name         (:name pv-item)
-     ::catalog/type         item-type
-     ::catalog/parent-id    (:parent-id pv-item)
-     ::catalog/production-year (:year pv-item)
-     ::catalog/premiere     (:release-date pv-item)}))
+    {::media/id           (:remote-key pv-item)  ; Use Jellyfin ID as catalog ID
+     ::media/name         (:name pv-item)
+     ::media/type         item-type
+     ::media/parent-id    (:parent-id pv-item)
+     ::media/production-year (:year pv-item)
+     ::media/premiere     (:release-date pv-item)}))
 
 (defn- library-kind->catalog-library
   "Map Pseudovision library kind to tunarr-scheduler library keyword."
