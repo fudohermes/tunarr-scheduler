@@ -97,12 +97,12 @@
 
     (try
       ;; Get catalog library-id by querying the database
-      (let [catalog-lib-id (catalog/get-library-id catalog library)
-            _ (log/info \"Retrieved catalog library ID\"
+      (let [catalog-lib-id (catalog/sql:get-library-id catalog library)
+            _ (log/info "Retrieved catalog library ID"
                         {:library library :catalog-lib-id catalog-lib-id})
             _ (when-not catalog-lib-id
-                (throw (ex-info \"Library not found in catalog\"
-                               {:library library}))
+                (throw (ex-info "Library not found in catalog "
+                                {:library library})))
 
             ;; Find matching Pseudovision library by kind  
             pv-library-id (if (integer? library)
