@@ -29,14 +29,19 @@
 
    Preserves Jellyfin ID mapping for tag sync."
   [pv-item catalog-library-id]
-  (let [item-type (if-let [k (:kind pv-item)] (keyword k) :movie)]  ; Default to :movie if kind missing
+  (let [item-type (if-let [k (:kind pv-item)] (keyword k) :movie)  ; Default to :movie if kind missing
+        year (:year pv-item)
+        ;; Premiere is required - use release-date if available, else construct from year, else use epoch
+        premiere (or (:release-date pv-item)
+                     (when year (str year "-01-01"))
+                     "1970-01-01")]
     {::media/id           (:remote-key pv-item)  ; Use Jellyfin ID as catalog ID
      ::media/name         (:name pv-item)
      ::media/type         item-type
      ::media/library-id   catalog-library-id    ; TS catalog library ID
      ::media/parent-id    (:parent-id pv-item)
-     ::media/production-year (:year pv-item)
-     ::media/premiere     (:release-date pv-item)}))
+     ::media/production-year year
+     ::media/premiere     premiere}))
 
 (defn- library-kind->catalog-library
   "Map Pseudovision library kind to tunarr-scheduler library keyword."
