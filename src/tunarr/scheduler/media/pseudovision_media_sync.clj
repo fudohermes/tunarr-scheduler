@@ -31,9 +31,10 @@
   [pv-item catalog-library-id]
   (let [item-type (if-let [k (:kind pv-item)] (keyword k) :movie)  ; Default to :movie if kind missing
         year (or (:year pv-item) 1970)  ; Default to 1970 if year is missing
-        ;; Premiere is required - use release-date if available, else construct from year
-        premiere (or (:release-date pv-item)
-                     (str year "-01-01"))]
+;; Premiere is required - use release-date if available, else construct from year
+        ;; Convert to LocalDate for proper SQL DATE type
+        premiere-date-str (or (:release-date pv-item) (str year))
+        premiere (java.time.LocalDate/parse premiere-date-str)]
     (log/debug "Mapping PV item to catalog"
                {:pv-id (:id pv-item)
                 :name (:name pv-item)
