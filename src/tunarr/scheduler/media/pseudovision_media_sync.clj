@@ -96,12 +96,13 @@
     (log/info "Syncing media FROM Pseudovision" {:library library})
 
     (try
-      ;; Get catalog library-id using hardcoded mapping
-      ;; TODO: Add library management to catalog protocol for dynamic lookup
-      (let [catalog-lib-id (case library
-                             :movies "f137a2ddb8b63d3e81c6c8c64e1dd01b"  ; From Jellyfin Movies library
-                             :shows  "a656b907e15e23eac612ce0b78afce7d"  ; From Jellyfin Shows library
-                             (throw (ex-info "Unknown library" {:library library})))
+      ;; Get catalog library-id by querying the database
+      (let [catalog-lib-id (catalog/get-library-id catalog library)
+            _ (log/info \"Retrieved catalog library ID\"
+                        {:library library :catalog-lib-id catalog-lib-id})
+            _ (when-not catalog-lib-id
+                (throw (ex-info \"Library not found in catalog\"
+                               {:library library}))
 
             ;; Find matching Pseudovision library by kind  
             pv-library-id (if (integer? library)
