@@ -29,15 +29,28 @@
 
    Preserves Jellyfin ID mapping for tag sync."
   [pv-item catalog-library-id]
-  (let [item-type (if-let [k (:kind pv-item)] (keyword k) :movie)  ; Default to :movie if kind missing
+  (let [item-type (case (:kind pv-item)
+                    :show   :series      ; Map PV \"show\" to TS \"series\"
+                    :episode :episode    ; Keep as-is
+                    :season  :season     ; Keep as-is
+                    :movie   :movie      ; Keep as-is
+                    :song    :song       ; Keep as-is
+                    :music_video :music-video  ; Map PV \"music_video\" to TS \"music-video\"
+                    :image   :image      ; Keep as-is
+                    (keyword (:kind pv-item :movie)))  ; Default to :movie if kind missing
         year (or (:year pv-item) 1970)  ; Default to 1970 if year is missing
-;; Premiere is required - use release-date if available, else construct from year
+        ;; Premiere is required - use release-date if available, else construct from year
         ;; Convert to LocalDate for proper SQL DATE type (needs format: \"YYYY-MM-DD\")
         premiere-date-str (or (:release-date pv-item)
                               (str year))
         premiere (if (= 4 (count premiere-date-str))
                    (java.time.LocalDate/of year 1 1)  ; Construct date from year
-                   (java.time.LocalDate/parse premiere-date-str))]
+                   (java.time.LocalDate/parse premiere-date-str))
+        ;; Episode numbers are required for episodes - get from position or index
+        episode-number (when (= item-type :episode)
+                         (or (:position pv-item)
+                             (:episode-number pv-item)
+                             (:index-number pv-item)))]
     (log/debug "Mapping PV item to catalog"
                {:pv-id (:id pv-item)
                 :name (:name pv-item)
@@ -48,14 +61,18 @@
                 :has-name (contains? pv-item :name)
                 :has-kind (contains? pv-item :kind)
                 :has-release-date (contains? pv-item :release-date)
-                :all-keys (keys pv-item)})
-    {::media/id           (:remote-key pv-item)  ; Use Jellyfin ID as catalog ID
-     ::media/name         (:name pv-item)
-     ::media/type         item-type
-     ::media/library-id   catalog-library-id    ; TS catalog library ID
-     ::media/parent-id    (:parent-id pv-item)
-     ::media/production-year year
-     ::media/premiere     premiere}))
+                :all-keys (keys pv-item)
+                :episode-number episode-number})
+    (merge
+     {::media/id           (:remote-key pv-item)  ; Use Jellyfin ID as catalog ID
+      ::media/name         (:name pv-item)
+      ::media/type         item-type
+      ::media/library-id   catalog-library-id    ; TS catalog library ID
+      ::media/parent-id    (:parent-id pv-item)
+      ::media/production-year year
+      ::media/premiere     premiere}
+     (when episode-number
+       {::media/episode-number episode-number}))))
 
 (defn- library-kind->catalog-library
   "Map Pseudovision library kind to tunarr-scheduler library keyword."
