@@ -47,6 +47,8 @@
                    (java.time.LocalDate/of year 1 1)  ; Construct date from year
                    (java.time.LocalDate/parse premiere-date-str))
         ;; Episode numbers are required for episodes - get from position or index
+        season-number (when (= item-type :episode)
+                        (:season-number pv-item))
         episode-number (when (= item-type :episode)
                          (or (:position pv-item)
                              (:episode-number pv-item)
@@ -62,6 +64,7 @@
                 :has-kind (contains? pv-item :kind)
                 :has-release-date (contains? pv-item :release-date)
                 :all-keys (keys pv-item)
+                :season-number season-number
                 :episode-number episode-number})
     (merge
      {::media/id           (:remote-key pv-item)  ; Use Jellyfin ID as catalog ID
@@ -71,8 +74,9 @@
       ::media/parent-id    (:parent-id pv-item)
       ::media/production-year year
       ::media/premiere     premiere}
-     (when episode-number
-       {::media/episode-number episode-number}))))
+     (when (and season-number episode-number)
+       {::media/season-number season-number
+        ::media/episode-number episode-number}))))
 
 (defn- library-kind->catalog-library
   "Map Pseudovision library kind to tunarr-scheduler library keyword."
@@ -165,19 +169,27 @@
                                    {:item-id (:id stub)
                                     :item-keys (keys item)
                                     :sample-data (select-keys item [:id :name :year :remote-key :kind :parent-id :release-date])}))
-                    err  (try
-                           (catalog/add-media! catalog (pseudovision-item->catalog-item item catalog-lib-id))
-                           (catch Exception e
-                             (log/warn e "Failed to sync item"
-                                       {:item-id (:id stub)
-                                        :item-keys (keys item)})
-                             {:item-id (:id stub) :error (.getMessage e)}))]
+                    catalog-item (pseudovision-item->catalog-item item catalog-lib-id)
+                    episode-missing-numbers? (and (= :episode (::media/type catalog-item))
+                                                  (or (nil? (::media/season-number catalog-item))
+                                                      (nil? (::media/episode-number catalog-item))))
+                    _ (when episode-missing-numbers?
+                        (log/warn "Skipping episode missing season/episode numbers"
+                                  {:item-id (:id stub) :name (:name item)}))
+                    err  (when-not episode-missing-numbers?
+                           (try
+                             (catalog/add-media! catalog catalog-item)
+                             (catch Exception e
+                               (log/warn e "Failed to sync item"
+                                         {:item-id (:id stub)
+                                          :item-keys (keys item)})
+                               {:item-id (:id stub) :error (.getMessage e)})))]
                 (report-progress {:phase "syncing" :current (inc idx) :total total})
                 (recur (rest remaining)
                        (inc idx)
-                       (if err synced (inc synced))
-                       skipped
-                       (if err (conj errors err) errors)))))))
+                       (if (or err episode-missing-numbers?) synced (inc synced))
+                       (if episode-missing-numbers? (inc skipped) skipped)
+                       (if (and err (not episode-missing-numbers?)) (conj errors err) errors)))))))
 
       (catch Exception e
         (log/error e "Failed to sync from Pseudovision")
