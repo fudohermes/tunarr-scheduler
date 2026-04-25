@@ -387,6 +387,38 @@
       (is (= 200 (:status response)))
       (is (= [] (:libraries body))))))
 
+;; Sync libraries endpoint tests
+(deftest sync-libraries-registers-in-catalog-test
+  (testing "POST /api/media/sync-libraries registers PV libraries in catalog"
+    (let [mock-libraries [{:id 1 :name "Movies" :kind "movies"}
+                          {:id 2 :name "TV Shows" :kind "shows"}]
+          mock-pv {:config {:base-url "http://localhost:8080"}}]
+      (with-redefs [pv-client/list-all-libraries (fn [_] mock-libraries)]
+        (let [handler (routes/handler {:job-runner   *job-runner*
+                                       :collection   mock-collection
+                                       :catalog      *catalog*
+                                       :tunabrain    mock-tunabrain
+                                       :pseudovision mock-pv})
+              response (handler (mock/request :post "/api/media/sync-libraries"))
+              body     (parse-json-response response)]
+          (is (= 200 (:status response)))
+          (is (= 2 (count (:libraries body))))
+          (is (= "Movies" (:name (first (:libraries body)))))
+          (let [registered (get @(:state *catalog*) :libraries)]
+            (is (= 1 (:movies registered)))
+            (is (= 2 (:shows registered)))))))))
+
+(deftest sync-libraries-no-pseudovision-test
+  (testing "POST /api/media/sync-libraries returns 400 when Pseudovision is not configured"
+    (let [handler (routes/handler {:job-runner *job-runner*
+                                   :collection mock-collection
+                                   :catalog    *catalog*
+                                   :tunabrain  mock-tunabrain})
+          response (handler (mock/request :post "/api/media/sync-libraries"))
+          body     (parse-json-response response)]
+      (is (= 400 (:status response)))
+      (is (contains? body :error)))))
+
 ;; Edge case: empty library name
 (deftest empty-library-name-test
   (testing "endpoints handle empty library names appropriately"
