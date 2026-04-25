@@ -5,7 +5,8 @@
             [tunarr.scheduler.http.routes :as routes]
             [tunarr.scheduler.jobs.runner :as runner]
             [tunarr.scheduler.media.catalog :as catalog]
-            [tunarr.scheduler.media :as media]))
+            [tunarr.scheduler.media :as media]
+            [tunarr.scheduler.backends.pseudovision.client :as pv-client]))
 
 ;; Mock catalog implementation for testing
 (defrecord MockCatalog [state]
@@ -356,6 +357,67 @@
       (is (= 405 (:status response)))
       (is (= "application/json" (get-in response [:headers "Content-Type"])))
       (is (= "Method not allowed" (:error body))))))
+
+;; List libraries endpoint tests
+(deftest list-libraries-from-pseudovision-test
+  (testing "GET /api/media/libraries returns libraries fetched from Pseudovision"
+    (let [mock-libraries [{:id 1 :name "Movies" :kind "movies"}
+                          {:id 2 :name "TV Shows" :kind "shows"}]
+          mock-pv {:config {:base-url "http://localhost:8080"}}]
+      (with-redefs [pv-client/list-all-libraries (fn [_] mock-libraries)]
+        (let [handler (routes/handler {:job-runner *job-runner*
+                                       :collection mock-collection
+                                       :catalog *catalog*
+                                       :tunabrain mock-tunabrain
+                                       :pseudovision mock-pv})
+              response (handler (mock/request :get "/api/media/libraries"))
+              body (parse-json-response response)]
+          (is (= 200 (:status response)))
+          (is (= 2 (count (:libraries body))))
+          (is (= "Movies" (:name (first (:libraries body))))))))))
+
+(deftest list-libraries-no-pseudovision-test
+  (testing "GET /api/media/libraries returns empty list when Pseudovision is not configured"
+    (let [handler (routes/handler {:job-runner *job-runner*
+                                   :collection mock-collection
+                                   :catalog *catalog*
+                                   :tunabrain mock-tunabrain})
+          response (handler (mock/request :get "/api/media/libraries"))
+          body (parse-json-response response)]
+      (is (= 200 (:status response)))
+      (is (= [] (:libraries body))))))
+
+;; Sync libraries endpoint tests
+(deftest sync-libraries-registers-in-catalog-test
+  (testing "POST /api/media/sync-libraries registers PV libraries in catalog"
+    (let [mock-libraries [{:id 1 :name "Movies" :kind "movies"}
+                          {:id 2 :name "TV Shows" :kind "shows"}]
+          mock-pv {:config {:base-url "http://localhost:8080"}}]
+      (with-redefs [pv-client/list-all-libraries (fn [_] mock-libraries)]
+        (let [handler (routes/handler {:job-runner   *job-runner*
+                                       :collection   mock-collection
+                                       :catalog      *catalog*
+                                       :tunabrain    mock-tunabrain
+                                       :pseudovision mock-pv})
+              response (handler (mock/request :post "/api/media/sync-libraries"))
+              body     (parse-json-response response)]
+          (is (= 200 (:status response)))
+          (is (= 2 (count (:libraries body))))
+          (is (= "Movies" (:name (first (:libraries body)))))
+          (let [registered (get @(:state *catalog*) :libraries)]
+            (is (= 1 (:movies registered)))
+            (is (= 2 (:shows registered)))))))))
+
+(deftest sync-libraries-no-pseudovision-test
+  (testing "POST /api/media/sync-libraries returns 400 when Pseudovision is not configured"
+    (let [handler (routes/handler {:job-runner *job-runner*
+                                   :collection mock-collection
+                                   :catalog    *catalog*
+                                   :tunabrain  mock-tunabrain})
+          response (handler (mock/request :post "/api/media/sync-libraries"))
+          body     (parse-json-response response)]
+      (is (= 400 (:status response)))
+      (is (contains? body :error)))))
 
 ;; Edge case: empty library name
 (deftest empty-library-name-test
