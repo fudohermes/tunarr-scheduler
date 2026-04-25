@@ -259,18 +259,14 @@
       (json-response {:error (.getMessage e)} 500))))
 
 (defn- list-libraries!
-  "List all configured libraries."
-  [{:keys [jellyfin-config]}]
+  "List all libraries from Pseudovision."
+  [{:keys [pseudovision]}]
   (try
-    (let [libraries (:libraries jellyfin-config)]
-      (if libraries
-        (ok {:libraries (into {}
-                              (map (fn [[name id]]
-                                     [(clojure.core/name name)
-                                      {:name (clojure.core/name name)
-                                       :id id}])
-                                   libraries))})
-        (ok {:libraries {}})))
+    (if-not pseudovision
+      (ok {:libraries []})
+      (let [pv-config (pv-client/get-config pseudovision)
+            libraries (pv-client/list-all-libraries pv-config)]
+        (ok {:libraries libraries})))
     (catch Exception e
       (log/error e "Error listing libraries")
       (json-response {:error (.getMessage e)} 500))))
@@ -289,7 +285,7 @@
           ["/api"
            ["/media/libraries" {:get (fn [_]
                                        (list-libraries!
-                                        {:jellyfin-config jellyfin-config}))}]
+                                        {:pseudovision pseudovision}))}]
            ["/media/:library/rescan" {:post (fn [{{:keys [library]} :path-params}]
                                               (submit-rescan-job!
                                                {:job-runner job-runner
