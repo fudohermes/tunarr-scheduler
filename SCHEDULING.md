@@ -1,6 +1,6 @@
 # TV Scheduling System Design
 
-This document outlines the architecture for an LLM-powered TV scheduling system that manages ErsatzTV channels with minimal human intervention.
+This document outlines the architecture for an LLM-powered TV scheduling system that manages Pseudovision channels with minimal human intervention.
 
 ## Philosophy
 
@@ -9,7 +9,7 @@ This document outlines the architecture for an LLM-powered TV scheduling system 
 - **Constraint-driven** - users provide natural language instructions
 - **Pleasant surprises** - occasional reshuffles (1-2x/year), no approval needed
 - **Disciplined** - consistent structure, not chaotic changes
-- **Always something playing** - ErsatzTV fallback ensures no dead air
+- **Always something playing** - Pseudovision fallback ensures no dead air
 
 ## Architecture Overview
 
@@ -19,15 +19,15 @@ This document outlines the architecture for an LLM-powered TV scheduling system 
 │  (Web UI → stored in DB per channel)                            │
 │                                                                 │
 │  Natural language, e.g.:                                        │
-│    "Seinfeld should air at least 3x/week in primetime"          │
-│    "Weekend mornings: light, family-friendly content"           │
-│    "No adult content before 10pm"                               │
+│    - Seinfeld should air at least 3x/week in primetime          │
+│    - Weekend mornings: light, family-friendly content           │
+│    - No adult content before 10pm                               │
 └─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
+                               │
+                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │               LEVEL 0: SEASONAL PLANNER                         │
-│               (quarterly, or on-demand via "big red button")    │
+│               (quarterly, or on-demand via 'big red button')    │
 ├─────────────────────────────────────────────────────────────────┤
 │  Decides:                                                       │
 │    • Theme weeks (Spy Week, Action Week)                        │
@@ -40,8 +40,8 @@ This document outlines the architecture for an LLM-powered TV scheduling system 
 │    • Reshuffles only on calendar triggers or manual request     │
 │    • Must respect content inventory limits                      │
 └─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
+                               │
+                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │               LEVEL 1: MONTHLY PLANNER                          │
 │               (runs ~1st of each month)                         │
@@ -59,8 +59,8 @@ This document outlines the architecture for an LLM-powered TV scheduling system 
 │    Sat 08:00-12:00: Classic sitcom marathon                     │
 │    Sat 20:00-00:00: Movie night                                 │
 └─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
+                               │
+                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │               LEVEL 2: WEEKLY EXECUTOR                          │
 │               (runs weekly)                                     │
@@ -71,20 +71,19 @@ This document outlines the architecture for an LLM-powered TV scheduling system 
 │    • Adjustments for that specific week                         │
 │                                                                 │
 │  Actions:                                                       │
-│    • Generate ErsatzTV Sequential Schedule YAML                 │
-│    • Upload to ErsatzTV via API                                 │
-│    • Update episode tracking state                              │
+│    • Generate Pseudovision Schedule + Slots via API             │
+│    • Assign schedule to channel                                 │
 │    • Trigger playout rebuild                                    │
 └─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
+                               │
+                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                        ERSATZTV                                 │
+│                        PSEUDOVISION                             │
 ├─────────────────────────────────────────────────────────────────┤
-│  Dead Air Fallback: Smart collection per channel                │
-│    → Always something playing, even if scheduler fails          │
-│  Sequential Schedule: Agent-generated YAML                      │
-│  Playout: Built from schedule + fallback                        │
+│  Tag-based content selection (required_tags/excluded_tags)      │
+│  Fallback collections ensure no dead air                        │
+│  Native scheduling engine builds playout events                 │
+│  HLS streaming to viewers                                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -127,10 +126,11 @@ Media is pre-categorized (via the recategorize system) into:
 
 | Category | Values | Purpose |
 |----------|--------|---------|
-| `time-slot` | daytime, primetime, late-night | Time-appropriateness filtering |
+| `time-slot` | morning, daytime, primetime, late-night | Time-appropriateness filtering |
 | `audience` | kids, family, teen, adult | Daytime-safe filtering |
-| `season` | any, spring, summer, fall, winter, holiday, halloween, valentines, independence | Seasonal scheduling |
+| `season` | any, spring, summer, fall, winter, christmas, halloween, valentines, independence | Seasonal scheduling |
 | `freshness` | classic, retro, modern, contemporary | Era-based channel targeting |
+| `channel` | enigma, toontown, galaxy, nippon, spectrum, britannia, etc. | Which channel content fits |
 
 ### Category Assignment Examples
 
@@ -138,11 +138,12 @@ Media is pre-categorized (via the recategorize system) into:
 - season: `[:halloween, :any]` - Can air during Halloween OR year-round
 
 **Christmas movie** (specific):
-- season: `[:holiday]` - Only December
+- season: `[:christmas]` - Only December
 
 **Family sitcom**:
 - time-slot: `[:daytime, :primetime]`
 - audience: `[:family]`
+- channel: `[:spectrum]`
 
 ## Episode Tracking
 
@@ -171,8 +172,8 @@ Series: Cheers
 
 When a series completes:
 - Default: Rotate out to avoid staleness
-- Unless: User instructions explicitly say "always keep Seinfeld, restart when done"
-- The agent won't directly know when rotation happens - it will naturally select different content when generating schedules
+- Unless: User instructions explicitly say keep series in rotation
+- The agent will naturally select different content when generating schedules
 
 ## Reshuffle Triggers
 
@@ -184,7 +185,7 @@ Major schedule reshuffles happen on:
 - Major holidays (if configured)
 
 ### 2. Manual Trigger (User)
-- "Big red button" in web UI
+- Big red button in web UI
 - Triggers Level 0 Seasonal Planner
 - No approval needed - agent executes immediately
 
@@ -205,63 +206,65 @@ Major schedule reshuffles happen on:
 
 | Type | Duration | Content Selection | Example |
 |------|----------|-------------------|---------|
-| Sequential Show | 30-90 min | Next episodes in order | "Seinfeld S4E12-E13" |
-| Shuffle Block | 60-180 min | Random from criteria | "Classic sitcoms (shuffle)" |
-| Marathon | 4-12 hours | Theme-based, shuffled | "Spy Movie Marathon" |
-| Movie Slot | 90-180 min | Single film | "Random primetime movie" |
-| Filler | Variable | Random appropriate content | "Channel-appropriate fallback" |
+| Sequential Show | 30-90 min | Next episodes in order | Seinfeld S4E12-E13 |
+| Shuffle Block | 60-180 min | Random from criteria | Classic sitcoms (shuffle) |
+| Marathon | 4-12 hours | Theme-based, shuffled | Spy Movie Marathon |
+| Movie Slot | 90-180 min | Single film | Random primetime movie |
+| Filler | Variable | Random appropriate content | Channel-appropriate fallback |
 
-## ErsatzTV Integration
+## Pseudovision Integration
 
 ### Schedule Format
 
-The agent generates ErsatzTV Sequential Schedule YAML:
+The agent generates schedules via Pseudovision HTTP API:
 
-```yaml
-content:
-  # Morning sitcom block (multi-episode)
-  - sequence:
-      name: "Morning Sitcoms"
-      content:
-        - show:
-            key: "FRIENDS"
-            show_guids: ["friends-guid"]
-            order: "chronological"
-            count: 2  # 2 episodes back-to-back
-        - show:
-            key: "SEINFELD"  
-            show_guids: ["seinfeld-guid"]
-            order: "chronological"
-            count: 2
-      playout:
-        - pad_to_next: 30  # Pad to next 30-min mark
-
-  # Primetime variety (shuffle)
-  - sequence:
-      name: "Primetime Comedy"
-      content:
-        - search:
-            query: "channel:spectrum AND time_slot:primetime"
-            order: "shuffle"
-      playout:
-        - duration: 180  # 3 hours
-          trim: false
-
-  # Weekend marathon
-  - wait_until: "Saturday 8:00 AM"
-  - sequence:
-      name: "Saturday Morning Cartoons"
-      content:
-        - search:
-            query: "channel:toontown AND audience:kids"
-            order: "shuffle"
-      playout:
-        - duration: 240  # 4 hours
+**Step 1: Create Schedule**
+```bash
+POST /api/schedules
+{
+  name: 'Sitcom Spectrum Week 1'
+}
 ```
+
+**Step 2: Add Slots**
+```bash
+POST /api/schedules/:id/slots
+{
+  slot_index: 0,
+  anchor: 'fixed',
+  start_time: '18:00:00',
+  fill_mode: 'flood',
+  required_tags: ['comedy', 'sitcom'],
+  excluded_tags: ['explicit'],
+  playback_order: 'shuffle'
+}
+```
+
+**Step 3: Attach to Channel & Rebuild**
+```bash
+PATCH /api/channels/:id
+{schedule_id: 123}
+
+POST /api/channels/:id/playout?from=now&horizon=14
+```
+
+### Slot Configuration Options
+
+| Option | Values | Description |
+|--------|--------|-------------|
+| `anchor` | `fixed`, `sequential` | Fixed time or follows previous slot |
+| `start_time` | HH:MM:SS | For fixed anchors |
+| `fill_mode` | `once`, `count`, `block`, `flood` | How to fill the slot |
+| `block_duration` | ISO-8601 | Duration for block mode (PT2H = 2 hours) |
+| `item_count` | integer | Count for count mode |
+| `collection_id` | integer | Use specific collection |
+| `required_tags` | string[] | Items must have ALL these tags |
+| `excluded_tags` | string[] | Items must NOT have ANY of these tags |
+| `playback_order` | `chronological`, `random`, `shuffle`, `semi-sequential`, `season-episode` | How to select items |
 
 ### Fallback Configuration
 
-Each channel has smart collections configured in ErsatzTV for fallback:
+Each channel has fallback collections configured in Pseudovision:
 
 **Daytime Fallback:**
 ```
@@ -302,13 +305,13 @@ rotate_out_series(show_id) → success
 rotate_in_series(show_id) → success
 ```
 
-### ErsatzTV
+### Pseudovision
 ```
-get_current_schedule(channel) → yaml_content
-upload_schedule(channel, yaml) → success
-rebuild_playout(channel) → success
-get_smart_collections() → [collections]
-get_channel_info(channel) → {fallback_collection, streaming_mode, ...}
+create_schedule(channel, name) → schedule_id
+add_slot(schedule_id, slot_config) → success
+attach_schedule_to_channel(channel_id, schedule_id) → success
+rebuild_playout(channel_id, horizon_days) → {events_generated, ...}
+get_channel_playout(channel_id) → {current_events, ...}
 ```
 
 ### Scheduling Helpers
@@ -326,41 +329,43 @@ get_schedule_preview(channel, date_range) → rendered_schedule
 
 ## Implementation Phases
 
-### Phase 1: Foundation ⏱️ ~1-2 weeks
-- [ ] Implement ErsatzTV API client (currently stub in `backends/ersatztv/client.clj`)
+### Phase 1: Foundation
+- [x] ✅ Pseudovision HTTP client (backends/pseudovision/client.clj)
+- [x] ✅ Channel sync to Pseudovision (channels/sync.clj)
+- [x] ✅ Tag sync to Pseudovision (media/pseudovision_sync.clj)
+- [x] ✅ Schedule generation (scheduling/pseudovision.clj)
 - [ ] Episode tracking database schema and CRUD operations
 - [ ] User instruction storage schema (TEXT field per channel)
 - [ ] Basic web UI for editing instructions
-- [ ] Smart collection setup per channel in ErsatzTV
 
-### Phase 2: Weekly Executor (Level 2) ⏱️ ~2-3 weeks
-- [ ] Template → YAML generation logic
+### Phase 2: Weekly Executor (Level 2)
+- [ ] Template → API generation logic
 - [ ] Episode advancement logic
-- [ ] ErsatzTV upload integration
+- [ ] Pseudovision schedule upload integration
 - [ ] Validation against user instructions
-- [ ] HTTP endpoint: `POST /api/scheduling/:channel/generate-week`
+- [ ] HTTP endpoint: `POST /api/channels/:channel/generate-week`
 
-### Phase 3: Monthly Planner (Level 1) ⏱️ ~2-3 weeks
+### Phase 3: Monthly Planner (Level 1)
 - [ ] LLM agent that generates weekly templates from instructions
 - [ ] Instruction parsing and constraint checking
 - [ ] Special event handling (holidays, theme weeks)
 - [ ] Content inventory integration
-- [ ] HTTP endpoint: `POST /api/scheduling/:channel/generate-month`
+- [ ] HTTP endpoint: `POST /api/channels/:channel/generate-month`
 
-### Phase 4: Seasonal Planner (Level 0) ⏱️ ~1-2 weeks
+### Phase 4: Seasonal Planner (Level 0)
 - [ ] Theme week planning logic
 - [ ] Marathon scheduling
 - [ ] Holiday content management
 - [ ] Lineup reshuffle logic (1-2x/year)
-- [ ] HTTP endpoint: `POST /api/scheduling/:channel/reshuffle` (big red button)
+- [ ] HTTP endpoint: `POST /api/channels/:channel/reshuffle` (big red button)
 
-### Phase 5: Polish ⏱️ ~1-2 weeks
+### Phase 5: Polish
 - [ ] Full web UI for instructions and schedule preview
 - [ ] Schedule review/preview before execution
 - [ ] Better logging and monitoring
 - [ ] Error recovery and retry logic
 
-### Phase 6: Multi-Channel Coordination (Stretch Goal) ⏱️ TBD
+### Phase 6: Multi-Channel Coordination (Stretch Goal)
 - [ ] Avoid scheduling same content on multiple channels simultaneously
 - [ ] Coordinate theme weeks across channels
 - [ ] Share marathon content appropriately
@@ -404,7 +409,7 @@ CREATE TABLE schedule_state (
   schedule_type VARCHAR(20) NOT NULL CHECK (schedule_type IN ('weekly', 'monthly', 'seasonal')),
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
-  yaml_content TEXT NOT NULL,
+  pseudovision_schedule_id INT,
   applied BOOLEAN NOT NULL DEFAULT false,
   applied_at timestamptz,
   notes TEXT
@@ -469,73 +474,70 @@ When Seinfeld completes its run:
 - Keep it in rotation, restart from S1E1
 ```
 
-## ErsatzTV Sequential Schedule Example
+## Pseudovision Schedule Example
 
-Full example of what the agent would generate:
+Full example of what the agent would generate via API:
 
-```yaml
-# Generated by tunarr-scheduler for Sitcom Spectrum
-# Week of: 2026-02-02 to 2026-02-08
+### Step 1: Create Schedule
+```bash
+POST /api/schedules
+```
+Response: `{id: 42, name: 'Sitcom Spectrum Week 1'}`
 
-content:
-  # Monday through Friday pattern
-  - sequence:
-      name: "Weekday Evening Block"
-      repeat: 5  # Mon-Fri
-      content:
-        # 6pm Seinfeld
-        - wait_until: "18:00"
-        - show:
-            key: "SEINFELD_EVENING"
-            show_guids: ["seinfeld-tvdb-2910"]
-            order: "chronological"
-            count: 2  # 2 episodes (60 min)
-            
-        # 7pm Friends  
-        - show:
-            key: "FRIENDS_EVENING"
-            show_guids: ["friends-tvdb-1668"]
-            order: "chronological"
-            count: 2  # 2 episodes (60 min)
-            
-        # 8-10pm rotating comedies
-        - search:
-            query: "channel:spectrum AND time_slot:primetime AND NOT show_title:(Seinfeld OR Friends)"
-            order: "shuffle"
-        - duration: 120  # 2 hours
-          trim: false
-          
-  # Saturday
-  - wait_until: "Saturday 08:00"
-  - sequence:
-      name: "Saturday Morning Sitcom Marathon"
-      content:
-        - search:
-            query: "channel:spectrum AND audience:(family OR kids)"
-            order: "shuffle"
-      playout:
-        - duration: 240  # 4 hours (8am-12pm)
-          
-  - wait_until: "Saturday 20:00"
-  - sequence:
-      name: "Saturday Movie Night"
-      content:
-        - search:
-            query: "channel:spectrum AND media_type:movie AND time_slot:(primetime OR late-night)"
-            order: "shuffle"
-            count: 2  # 2 movies
-      playout:
-        - pad_to_next: 30
-        
-  # Sunday
-  - wait_until: "Sunday 14:00"
-  - sequence:
-      name: "Sunday Afternoon Movies"
-      content:
-        - search:
-            query: "channel:spectrum AND media_type:movie AND audience:family"
-            order: "shuffle"
-            count: 2
+### Step 2: Add Slots
+
+**Monday through Friday pattern:**
+```bash
+POST /api/schedules/42/slots
+{
+  slot_index: 0,
+  anchor: 'fixed',
+  start_time: '18:00:00',
+  fill_mode: 'flood',
+  required_tags: ['comedy', 'sitcom'],
+  playback_order: 'semi-sequential',
+  marathon_batch_size: 2
+}
+```
+
+**Evening variety (shuffle):**
+```bash
+POST /api/schedules/42/slots
+{
+  slot_index: 1,
+  anchor: 'sequential',
+  fill_mode: 'block',
+  block_duration: 'PT3H',
+  required_tags: ['comedy', 'time_slot:primetime'],
+  excluded_tags: ['sitcom'],
+  playback_order: 'shuffle'
+}
+```
+
+**Saturday morning marathon:**
+```bash
+POST /api/schedules/42/slots
+{
+  slot_index: 2,
+  anchor: 'fixed',
+  start_time: '08:00:00',
+  fill_mode: 'block',
+  block_duration: 'PT4H',
+  required_tags: ['audience:kids', 'channel:toontown'],
+  playback_order: 'shuffle'
+}
+```
+
+### Step 3: Assign & Rebuild
+
+```bash
+# Assign schedule to channel
+curl -X PATCH http://pseudovision:8080/api/channels/6 -d '{
+  schedule_id: 42
+}'
+
+# Rebuild playout for 14 days
+curl -X POST 'http://pseudovision:8080/api/channels/6/playout?from=now&horizon=14'
 ```
 
 ## Reshuffle Behavior
@@ -555,15 +557,15 @@ During these runs, the agent may:
 - Rotate out completed series
 - Adjust timeslots based on content inventory changes
 
-### Manual Reshuffle ("Big Red Button")
+### Manual Reshuffle (Big Red Button)
 
 Web UI provides a reshuffle trigger per channel:
 
 ```
-POST /api/scheduling/:channel/reshuffle
+POST /api/channels/:channel/reshuffle
 {
-  "reason": "User requested fresh lineup",
-  "preserve_favorites": false  // optional: keep certain shows in place
+  reason: 'User requested fresh lineup',
+  preserve_favorites: false  // optional: keep certain shows in place
 }
 ```
 
@@ -571,7 +573,7 @@ The agent will:
 1. Re-run Seasonal Planner for next 3 months
 2. Generate new monthly plan
 3. Create new weekly schedules
-4. Upload to ErsatzTV
+4. Push to Pseudovision
 5. Trigger playout rebuild
 
 ## Future Considerations
@@ -589,29 +591,29 @@ The agent could be aware of other channels when scheduling:
 Potential future enhancements:
 
 - Track what actually played vs. what was scheduled
-- Learn from manual overrides (if users edit ErsatzTV directly)
+- Learn from manual overrides (if users edit Pseudovision directly)
 - Adjust based on (hypothetical) viewership data
-- User feedback: "that marathon was too long"
+- User feedback: that marathon was too long
 
 ### Bumper Generation
 
 Auto-generate channel promotions:
 
-- "Coming up next" bumpers
+- Coming up next bumpers
 - Theme-appropriate interstitials
-- Schedule-aware announcements ("Tonight at 8...")
+- Schedule-aware announcements (Tonight at 8...)
 
 ## Current Implementation Status
 
 | Component | Status | Location |
 |-----------|--------|----------|
-| Backend protocol | ✅ Implemented | `src/tunarr/scheduler/backends/protocol.clj` |
-| ErsatzTV mapping | ✅ Implemented | `src/tunarr/scheduler/backends/ersatztv/mapping.clj` |
-| ErsatzTV API client | ⏳ Stub only | `src/tunarr/scheduler/backends/ersatztv/client.clj` |
+| Pseudovision HTTP client | ✅ Implemented | `src/tunarr/scheduler/backends/pseudovision/client.clj` |
+| Channel sync | ✅ Implemented | `src/tunarr/scheduler/channels/sync.clj` |
+| Tag sync to Pseudovision | ✅ Implemented | `src/tunarr/scheduler/media/pseudovision_sync.clj` |
+| Schedule generator | ✅ Implemented | `src/tunarr/scheduler/scheduling/pseudovision.clj` |
 | Episode tracking | ❌ Not implemented | Planned |
 | User instructions | ❌ Not implemented | Planned |
-| Schedule YAML generation | ❌ Not implemented | Planned |
-| Scheduling agent | ❌ Not implemented | Planned |
+| LLM scheduling agent | ❌ Not implemented | Planned |
 | Web UI | ❌ Not implemented | Planned |
 
-See `MIGRATION.md` for detailed migration plan from ErsatzTV to full scheduling system.
+See `TODO.md` for the complete roadmap.

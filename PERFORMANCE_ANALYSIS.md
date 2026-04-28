@@ -1,7 +1,7 @@
 # Performance Analysis Report - Tunarr Scheduler
 
 **Analysis Date:** 2026-01-08
-**Codebase:** tunarr-scheduler (Clojure media scheduling service)
+**Codebase:** tunarr-scheduler (Clojure IPTV scheduling service with Pseudovision integration)
 
 ## Executive Summary
 

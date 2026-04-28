@@ -1,6 +1,6 @@
 # tunarr-scheduler TODO
 
-**Status as of Apr 19, 2026:** Successfully migrated from ErsatzTV/Tunarr to **Pseudovision** exclusive integration.
+**Status as of Apr 27, 2026:** Migration to **Pseudovision** exclusive integration complete. All old code cleaned up, docs updated.
 
 ---
 
@@ -85,25 +85,20 @@
 ## 📋 Medium Priority
 
 ### **4. Cleanup Old Code**
-**Status:** ErsatzTV/Tunarr code still in repo but unused
+**Status:** ✅ Completed (Apr 27, 2026)
 
-- [ ] Delete `backends/ersatztv/` directory
-- [ ] Delete `backends/tunarr/` directory
-- [ ] Delete `media/jellyfin_sync.clj` (replaced by pseudovision_sync.clj)
-- [ ] Remove ErsatzTV/Tunarr routes from routes.clj
-- [ ] Remove ErsatzTV/Tunarr from system.clj init
-
-**Estimated time:** 1 hour
+- [x] Delete `backends/ersatztv/` directory
+- [x] Delete `backends/tunarr/` directory
+- [x] Delete `media/jellyfin_sync.clj` (replaced by pseudovision_sync.clj)
+- [x] Remove old test file `backends/ersatztv/mapping_test.clj`
 
 ### **5. Documentation Updates**
-**Status:** Docs still reference ErsatzTV/Tunarr
+**Status:** ✅ Completed (Apr 27, 2026)
 
-- [ ] Update README.md - replace ErsatzTV with Pseudovision
-- [ ] Rename/update JELLYFIN_SYNC.md → PSEUDOVISION_SYNC.md
-- [ ] Update SCHEDULING.md to reflect Pseudovision architecture
-- [ ] Add integration examples and workflows
-
-**Estimated time:** 2 hours
+- [x] Update README.md - replace ErsatzTV with Pseudovision
+- [x] Rename/update JELLYFIN_SYNC.md → PSEUDOVISION_SYNC.md
+- [x] Update SCHEDULING.md to reflect Pseudovision architecture
+- [x] Rewrite MIGRATION.md to reference new docs
 
 ### **6. Channel-Specific Collections**
 **Status:** Can create schedules, but no automatic collection mapping
