@@ -46,7 +46,7 @@
                 :media/retag 
                 :media/taglines 
                 :media/recategorize
-                :media/jellyfin-sync})
+                :media/pseudovision-sync})
 
 (s/def ::config
   (s/keys :req-un [::type]))

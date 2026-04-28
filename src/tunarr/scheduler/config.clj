@@ -50,10 +50,12 @@
         collection-config (get config :collection {})
         add-default (fn [cfg k default]
                       (if (contains? cfg k) cfg (assoc cfg k default)))
-        collection-config (if (= :jellyfin (-> collection-config :type))
-                            (-> collection-config
-                                (replace-envvar :api-key  "COLLECTION_API_KEY")
-                                (replace-envvar :base-url "COLLECTION_BASE_URL"))
+        collection-config (case (-> collection-config :type)
+                            :jellyfin (-> collection-config
+                                          (replace-envvar :api-key  "COLLECTION_API_KEY")
+                                          (replace-envvar :base-url "COLLECTION_BASE_URL"))
+                            :pseudovision (-> collection-config
+                                              (replace-envvar :base-url "COLLECTION_BASE_URL"))
                             collection-config)
         catalog-config (if (= :postgresql catalog-type)
                          (-> catalog-config
@@ -116,6 +118,5 @@
                           :curation-config (merge curation-config
                                                   {:channels  channel-config
                                                    :categories categories-config})
-                          :jellyfin-config collection-config
                           ;; TODO: Add scheduler, media, tts, bumpers, tunarr refs when implemented
                           }}))
