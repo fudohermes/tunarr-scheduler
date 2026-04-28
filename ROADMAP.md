@@ -19,21 +19,23 @@ Radarr/Sonarr → Jellyfin (raw media + IMDB tags)
 
 ## Blockers by Phase
 
-### Phase 1: Fix Data Flow 🔴 CRITICAL
+### Phase 1: Fix Data Flow ✅ COMPLETE
 
-| # | Blocker | Description | Effort |
+| # | Blocker | Description | Status |
 |---|---------|-------------|--------|
-| 1.1 | Jellyfin direct access | Tunarr Scheduler pulls from Jellyfin instead of Pseudovision | Medium |
-| 1.2 | No Pseudovision collection | Missing `pseudovision_collection.clj` implementing MediaCollection protocol | Medium |
-| 1.3 | jellyfin-sidekick dead code | Sidecar failing due to Jellyfin tag API bugs | Low |
-| 1.4 | Jellyfin config in infra | Leftover config in tunarr-scheduler deployment | Low |
+| 1.1 | Jellyfin direct access | Tunarr Scheduler pulls from Jellyfin instead of Pseudovision | ✅ Fixed (commit 6733876) |
+| 1.2 | No Pseudovision collection | Missing `pseudovision_collection.clj` implementing MediaCollection protocol | ✅ Created (commit 6733876) |
+| 1.3 | jellyfin-sidekick dead code | Sidecar failing due to Jellyfin tag API bugs | ✅ Removed (infra commit 926f953) |
+| 1.4 | Jellyfin config in infra | Leftover config in tunarr-scheduler deployment | ✅ Fixed (infra commit 3343c3a) |
 
-**Actions:**
-- Create `src/tunarr/scheduler/media/pseudovision_collection.clj`
-- Update collection config from `:jellyfin` to `:pseudovision`
-- Remove jellyfin-sidekick sidecar from Jellyfin deployment
-- Remove Jellyfin config from tunarr-scheduler deployment
-- Remove Jellyfin direct API code (jellyfin_collection.clj)
+**Completed Actions:**
+- ✅ Created `src/tunarr/scheduler/media/pseudovision_collection.clj`
+- ✅ Updated collection config from `:jellyfin` to `:pseudovision`
+- ✅ Removed jellyfin-sidekick sidecar from Jellyfin deployment
+- ✅ Removed Jellyfin config from tunarr-scheduler deployment
+- ✅ Deleted Jellyfin direct API code (jellyfin_collection.clj)
+- ✅ Updated job runner to use `:media/pseudovision-sync` job type
+- ✅ Fixed ersatztv/tunarr backend stubs that were broken
 
 ---
 
@@ -93,6 +95,7 @@ Radarr/Sonarr → Jellyfin (raw media + IMDB tags)
 
 ### ✅ Working
 - Media ingestion: Radarr/Sonarr → Jellyfin → Pseudovision
+- **Data flow: Tunarr Scheduler now pulls from Pseudovision** (Phase 1 complete)
 - 14 channels defined in Pseudovision
 - TunaBrain: Wikipedia enrichment + LLM tagging
 - Pseudovision: scheduling engine (needs input), HLS streaming
@@ -100,26 +103,30 @@ Radarr/Sonarr → Jellyfin (raw media + IMDB tags)
 
 ### ❌ Needs Work
 - Everything after tagging: schedule generation is a skeleton
-- Data flow: still pulling from Jellyfin instead of Pseudovision
-- jellyfin-sidekick: dead code, failing due to Jellyfin API bugs
+- Tag pipeline: needs end-to-end testing (Phase 2)
+- Parent-child relationships in catalog may need schema fix
 
 ---
 
-## Quick Wins
+## Next Quick Wins (Phase 2)
 
-1. **Remove jellyfin-sidekick** - Saves resources, removes broken code
+1. ~~**Remove jellyfin-sidekick**~~ ✅ Done - Removed broken sidecar code
 2. **Test Pseudovision sync** - `POST /api/media/movies/sync-pseudovision-tags`
-3. **Create first schedule** - `POST /api/channels/6/schedule` with manual slot spec
-4. **Verify playback** - Check HLS stream for scheduled channel
+3. **Verify media counts** - Compare catalog counts vs Pseudovision API
+4. **Test tag round-trip** - Tag an item, sync back to Pseudovision, verify
+5. **Create first schedule** - `POST /api/channels/6/schedule` with manual slot spec
+6. **Verify playback** - Check HLS stream for scheduled channel
 
 ---
 
 ## Success Metrics
 
-- [ ] First channel with LLM-tagged content scheduled and streaming
-- [ ] All 14 channels with curated schedules
-- [ ] 24/7 continuous streaming with automatic lookahead
-- [ ] 90%+ media library tag coverage
+- [x] **Phase 1:** Data flow from Pseudovision working (commits 6733876, 7b5bf14)
+- [ ] **Phase 2:** Tag enrichment pipeline end-to-end tested
+- [ ] **Phase 3:** First channel with LLM-tagged content scheduled and streaming
+- [ ] **Phase 3:** All 14 channels with curated schedules
+- [ ] **Phase 4:** 24/7 continuous streaming with automatic lookahead
+- [ ] **Phase 4:** 90%+ media library tag coverage
 
 ---
 
