@@ -1,5 +1,4 @@
 (ns tunarr.scheduler.system
-  "Integrant system definition for the Tunarr Scheduler service."
   (:require [integrant.core :as ig]
             [taoensso.timbre :as log]
             [clojure.string :as str]
@@ -8,14 +7,12 @@
             [tunarr.scheduler.media.catalog :as catalog]
             [tunarr.scheduler.media.sql-catalog]
             [tunarr.scheduler.media.collection :as collection]
-            [tunarr.scheduler.media.jellyfin-collection]
+            [tunarr.scheduler.media.pseudovision-collection]
             [tunarr.scheduler.curation.tags :as tag-curator]
             [tunarr.scheduler.curation.core :as curation]
             [tunarr.scheduler.jobs.throttler :as job-throttler]
             [tunarr.scheduler.tunabrain :as tunabrain]
             [tunarr.scheduler.backends.protocol :as backend-protocol]
-            [tunarr.scheduler.backends.ersatztv.client :as ersatztv]
-            [tunarr.scheduler.backends.tunarr.client :as tunarr-backend]
             [tunarr.scheduler.backends.pseudovision.client :as pseudovision]))
 
 (defmethod ig/init-key :tunarr/logger [_ {:keys [level]}]
@@ -155,8 +152,8 @@
                  (fn [acc [backend-key backend-config]]
                    (if (:enabled backend-config)
                      (let [client (case backend-key
-                                    :ersatztv (ersatztv/create backend-config)
-                                    :tunarr (tunarr-backend/create backend-config)
+                                    ;; Note: ersatztv backend removed - was never fully implemented
+                                    ;; :tunarr backend also not implemented yet
                                     (do
                                       (log/warn "Unknown backend type" {:backend backend-key})
                                       nil))]
@@ -195,8 +192,7 @@
   (log/info "bumpers service shutdown disabled (not yet implemented)")
   nil)
 
-(defmethod ig/init-key :tunarr/http-server [_ {:keys [port scheduler media tts bumpers tunarr catalog logger job-runner collection tunabrain throttler backends curation-config jellyfin-config pseudovision channels]}]
-  ;; TODO: Add scheduler, media, tts, bumpers, and tunarr dependencies when implemented
+(defmethod ig/init-key :tunarr/http-server [_ {:keys [port scheduler media tts bumpers tunarr catalog logger job-runner collection tunabrain throttler backends curation-config pseudovision channels]}]
   (http/start! {:port port
                 :job-runner job-runner
                 :collection collection
@@ -206,8 +202,7 @@
                 :backends backends
                 :pseudovision pseudovision
                 :channels channels
-                :curation-config curation-config
-                :jellyfin-config jellyfin-config}))
+                :curation-config curation-config}))
 
 (defmethod ig/halt-key! :tunarr/http-server [_ server]
   (http/stop! server))

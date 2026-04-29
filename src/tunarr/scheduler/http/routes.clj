@@ -1,5 +1,4 @@
 (ns tunarr.scheduler.http.routes
-  "Reitit routes for the Tunarr Scheduler API."
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
             [reitit.ring :as ring]
@@ -7,7 +6,6 @@
             [taoensso.timbre :as log]
             [tunarr.scheduler.jobs.runner :as jobs]
             [tunarr.scheduler.media.sync :as media-sync]
-            [tunarr.scheduler.media.jellyfin-sync :as jellyfin-sync]
             [tunarr.scheduler.media.pseudovision-sync :as pv-sync]
             [tunarr.scheduler.media.pseudovision-migration :as pv-migration]
             [tunarr.scheduler.media.pseudovision-media-sync :as pv-media-sync]
@@ -128,23 +126,11 @@
       (log/error e "Error submitting episode retag job" {:library library})
       (json-response {:error (.getMessage e)} 500))))
 
-(defn- submit-jellyfin-sync-job!
-  [{:keys [job-runner catalog jellyfin-config]} {:keys [library]}]
-  (try
-    (submit-job! job-runner
-                 :media/jellyfin-sync
-                 library
-                 "library not specified for jellyfin sync"
-                 (fn [opts] (jellyfin-sync/sync-library-tags! catalog jellyfin-config library opts)))
-    (catch Exception e
-      (log/error e "Error submitting Jellyfin sync job" {:library library})
-      (json-response {:error (.getMessage e)} 500))))
-
 (defn- submit-pseudovision-sync-job!
   [{:keys [job-runner catalog pseudovision]} {:keys [library]}]
   (try
     (submit-job! job-runner
-                 :media/jellyfin-sync
+                 :media/pseudovision-sync
                  library
                  "library not specified for pseudovision sync"
                  (fn [opts] (pv-sync/sync-library-tags! catalog
@@ -268,7 +254,7 @@
             libraries (pv-client/list-all-libraries pv-config)]
         (ok {:libraries libraries})))
     (catch Exception e
-      (log/error e "Error listing libraries")
+      (log/error e :msg (str "Error listing libraries") :error (.getMessage e))
       (json-response {:error (.getMessage e)} 500))))
 
 (defn- sync-libraries!
@@ -289,7 +275,7 @@
 
 (defn handler
   "Create the ring handler for the API."
-  [{:keys [job-runner collection catalog tunabrain throttler curation-config jellyfin-config pseudovision channels]}]
+  [{:keys [job-runner collection catalog tunabrain throttler curation-config pseudovision channels]}]
   (let [_ (println (format "PSEUDOVISION CONFIG: %s" pseudovision))
         router
         (ring/router
@@ -350,12 +336,6 @@
                                                         :config     curation-config}
                                                        {:library    library
                                                         :force      (= "true" (get query-params "force"))}))}]
-           ["/media/:library/sync-jellyfin-tags" {:post (fn [{{:keys [library]} :path-params}]
-                                                          (submit-jellyfin-sync-job!
-                                                           {:job-runner job-runner
-                                                            :catalog    catalog
-                                                            :jellyfin-config jellyfin-config}
-                                                           {:library    library}))}]
             ["/media/:library/sync-pseudovision-tags" {:post (fn [{{:keys [library]} :path-params}]
                                                                (submit-pseudovision-sync-job!
                                                                 {:job-runner job-runner
