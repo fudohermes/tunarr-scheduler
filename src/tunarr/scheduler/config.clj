@@ -55,6 +55,8 @@
                                           (replace-envvar :api-key  "COLLECTION_API_KEY")
                                           (replace-envvar :base-url "COLLECTION_BASE_URL"))
                             :pseudovision (-> collection-config
+                                              (update :base-url #(or % (get-in config [:pseudovision :base-url])))
+                                              (replace-envvar :base-url "PSEUDOVISION_URL")
                                               (replace-envvar :base-url "COLLECTION_BASE_URL"))
                             collection-config)
         catalog-config (if (= :postgresql catalog-type)

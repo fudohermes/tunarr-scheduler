@@ -104,14 +104,14 @@
                            (let [parsed (parse-pv-media-item item (:id library-match))
                                  defaulted (ensure-episode-defaults parsed)]
                              (if (s/invalid? (s/conform ::media/metadata defaulted))
-                               (do (log/warn :msg "HTTP request failed" :item item)
+                               (do (log/warn :msg "Skipping invalid media item" :item item)
                                    nil)
                                defaulted)))
                         items)]
           (doall (remove nil? parsed))))))
 
   (close! [_]
-    (log/info :msg "HTTP request failed")))
+    (log/info :msg "Closing Pseudovision media collection")))
 
 (s/def ::base-url string?)
 (s/def ::verbose boolean?)
@@ -123,8 +123,8 @@
   [config]
   (let [checked-config (s/conform ::collection-config config)]
     (if (s/invalid? checked-config)
-      (throw (ex-info "HTTP request failed"
+      (throw (ex-info "Invalid pseudovision collection configuration"
               {:error (s/explain-data ::collection-config config)}))
       (do
-        (log/info :msg "HTTP request failed" :base-url (:base-url config))
+        (log/info :msg "Initializing Pseudovision media collection" :base-url (:base-url config))
         (->PseudovisionMediaCollection config)))))
