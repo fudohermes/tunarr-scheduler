@@ -54,10 +54,16 @@
                             :jellyfin (-> collection-config
                                           (replace-envvar :api-key  "COLLECTION_API_KEY")
                                           (replace-envvar :base-url "COLLECTION_BASE_URL"))
-                            :pseudovision (-> collection-config
-                                              (update :base-url #(or % (get-in config [:pseudovision :base-url])))
-                                              (replace-envvar :base-url "PSEUDOVISION_URL")
-                                              (replace-envvar :base-url "COLLECTION_BASE_URL"))
+                            :pseudovision (let [resolved (-> collection-config
+                                                              (update :base-url #(or % (get-in config [:pseudovision :base-url])))
+                                                              (replace-envvar :base-url "PSEUDOVISION_URL")
+                                                              (replace-envvar :base-url "COLLECTION_BASE_URL"))]
+                                            (when (nil? (:base-url resolved))
+                                              (throw (ex-info (str "Pseudovision collection requires :base-url. "
+                                                                   "Set :base-url under :collection or :pseudovision in your config, "
+                                                                   "or set the PSEUDOVISION_URL / COLLECTION_BASE_URL environment variable.")
+                                                             {:collection-config resolved})))
+                                            resolved)
                             collection-config)
         catalog-config (if (= :postgresql catalog-type)
                          (-> catalog-config
