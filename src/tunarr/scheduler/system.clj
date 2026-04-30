@@ -98,11 +98,25 @@
   [_ curator]
   (curation/stop! curator))
 
+(defn- validate-channels! [channels]
+  (doseq [[channel-key channel-cfg] channels]
+    (let [missing (cond-> []
+                    (nil? (::media/channel-id channel-cfg))          (conj ":id")
+                    (nil? (::media/channel-fullname channel-cfg))    (conj ":name")
+                    (nil? (::media/channel-description channel-cfg)) (conj ":description"))]
+      (when (seq missing)
+        (throw (ex-info (format "Channel %s is missing required config fields: %s. Set these under :channels > %s in your config."
+                                (name channel-key)
+                                (str/join ", " missing)
+                                (name channel-key))
+                        {:channel channel-key :missing missing}))))))
+
 (defmethod ig/init-key :tunarr/config-sync [_ {:keys [channels libraries catalog]}]
   (when (not channels)
     (throw (ex-info "missing required key: channels" {})))
   (when (not libraries)
     (throw (ex-info "missing required key: libraries" {})))
+  (validate-channels! channels)
   (log/info (format "syncing channels with config: %s"
                     (str/join "," (map name (keys channels)))))
   (catalog/update-channels! catalog channels)
