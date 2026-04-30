@@ -4,7 +4,6 @@
             [clojure.tools.cli :refer [parse-opts]]
             [clojure.java.io :as io]
             [taoensso.timbre :as log]
-            [app.migrate :as migrate]
             [tunarr.scheduler.config :as config]
             [tunarr.scheduler.system :as system]))
 
@@ -60,11 +59,7 @@
           (System/exit 1))
 
       :else
-      (do
-        (log/info "Running database migrations")
-        (migrate/migrate!)
-        (log/info "Database migrations complete")
-        (let [config-map    (cond-> (merge-configs (:config options))
+      (let [config-map    (cond-> (merge-configs (:config options))
                             (:log-level options) (assoc :log-level (:log-level options)))
             system-config (config/config->system config-map)
             system        (system/start system-config)]
@@ -74,4 +69,4 @@
                                      (log/info "Shutdown requested")
                                      (system/stop system))))
         (log/info "Blocking main thread; press Ctrl+C to exit")
-        (deref (promise)))))))
+        (deref (promise))))))
