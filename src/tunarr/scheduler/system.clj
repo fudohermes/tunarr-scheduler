@@ -112,12 +112,21 @@
                                 (name channel-key))
                         {:channel channel-key :missing missing}))))))
 
+(defn- validate-libraries! [libraries]
+  (doseq [[library-key library-id] libraries]
+    (when (nil? library-id)
+      (throw (ex-info (format "Library %s is missing its ID. Set a Pseudovision library ID under :collection > :libraries > %s in your config."
+                              (name library-key)
+                              (name library-key))
+                      {:library library-key})))))
+
 (defmethod ig/init-key :tunarr/config-sync [_ {:keys [channels libraries catalog]}]
   (when (not channels)
     (throw (ex-info "missing required key: channels" {})))
   (when (not libraries)
     (throw (ex-info "missing required key: libraries" {})))
   (validate-channels! channels)
+  (validate-libraries! libraries)
   (log/info (format "syncing channels with config: %s"
                     (str/join "," (map name (keys channels)))))
   (catalog/update-channels! catalog channels)
