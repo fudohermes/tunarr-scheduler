@@ -4,6 +4,7 @@
             [clojure.string :as str]
             [tunarr.scheduler.http.server :as http]
             [tunarr.scheduler.jobs.runner :as job-runner]
+            [tunarr.scheduler.media :as media]
             [tunarr.scheduler.media.catalog :as catalog]
             [tunarr.scheduler.media.sql-catalog]
             [tunarr.scheduler.media.collection :as collection]
