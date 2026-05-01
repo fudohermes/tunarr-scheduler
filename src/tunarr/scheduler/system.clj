@@ -112,27 +112,33 @@
                                 (name channel-key))
                         {:channel channel-key :missing missing}))))))
 
-(defn- validate-libraries! [libraries]
-  (doseq [[library-key library-id] libraries]
-    (when (nil? library-id)
-      (throw (ex-info (format "Library %s is missing its ID. Set a Pseudovision library ID under :collection > :libraries > %s in your config."
-                              (name library-key)
-                              (name library-key))
-                      {:library library-key})))))
+(defn- resolve-library-ids
+  "Look up Pseudovision IDs for each library name, matching by :name field."
+  [collection-config library-names]
+  (let [pv-libraries (pseudovision/list-all-libraries collection-config)]
+    (reduce (fn [acc lib-name]
+              (if-let [match (some #(when (= (name lib-name) (:name %)) %) pv-libraries)]
+                (assoc acc lib-name (:id match))
+                (throw (ex-info (format "Library '%s' not found in Pseudovision. Available libraries: %s"
+                                        (name lib-name)
+                                        (str/join ", " (map :name pv-libraries)))
+                                {:library lib-name
+                                 :available (mapv :name pv-libraries)}))))
+            {}
+            library-names)))
 
-(defmethod ig/init-key :tunarr/config-sync [_ {:keys [channels libraries catalog]}]
+(defmethod ig/init-key :tunarr/config-sync [_ {:keys [channels library-names collection-config catalog]}]
   (when (not channels)
     (throw (ex-info "missing required key: channels" {})))
-  (when (not libraries)
-    (throw (ex-info "missing required key: libraries" {})))
   (validate-channels! channels)
-  (validate-libraries! libraries)
   (log/info (format "syncing channels with config: %s"
                     (str/join "," (map name (keys channels)))))
   (catalog/update-channels! catalog channels)
-  (log/info (format "syncing libraries with config: %s"
-                    (str/join "," (map name (keys libraries)))))
-  (catalog/update-libraries! catalog libraries)
+  (log/info (format "resolving library IDs from Pseudovision for: %s"
+                    (str/join "," (map name library-names))))
+  (let [libraries (resolve-library-ids collection-config library-names)]
+    (log/info (format "syncing libraries: %s" libraries))
+    (catalog/update-libraries! catalog libraries))
   channels)
 
 (defmethod ig/init-key :tunarr/normalize-tags
