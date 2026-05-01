@@ -112,32 +112,24 @@
                                 (name channel-key))
                         {:channel channel-key :missing missing}))))))
 
-(defn- resolve-library-ids
-  "Look up Pseudovision IDs for each library name, matching by :name field."
-  [collection-config library-names]
+(defn- fetch-all-libraries
+  "Fetch all libraries from Pseudovision and return a keyword-name → id map."
+  [collection-config]
   (let [pv-libraries (pseudovision/list-all-libraries collection-config)]
-    (reduce (fn [acc lib-name]
-              (if-let [match (some #(when (= (name lib-name) (:name %)) %) pv-libraries)]
-                (assoc acc lib-name (:id match))
-                (throw (ex-info (format "Library '%s' not found in Pseudovision. Available libraries: %s"
-                                        (name lib-name)
-                                        (str/join ", " (map :name pv-libraries)))
-                                {:library lib-name
-                                 :available (mapv :name pv-libraries)}))))
-            {}
-            library-names)))
+    (into {} (map (fn [lib] [(keyword (:name lib)) (:id lib)]) pv-libraries))))
 
-(defmethod ig/init-key :tunarr/config-sync [_ {:keys [channels library-names collection-config catalog]}]
+(defmethod ig/init-key :tunarr/config-sync [_ {:keys [channels collection-config catalog]}]
   (when (not channels)
     (throw (ex-info "missing required key: channels" {})))
   (validate-channels! channels)
   (log/info (format "syncing channels with config: %s"
                     (str/join "," (map name (keys channels)))))
   (catalog/update-channels! catalog channels)
-  (log/info (format "resolving library IDs from Pseudovision for: %s"
-                    (str/join "," (map name library-names))))
-  (let [libraries (resolve-library-ids collection-config library-names)]
-    (log/info (format "syncing libraries: %s" libraries))
+  (log/info "fetching all libraries from Pseudovision")
+  (let [libraries (fetch-all-libraries collection-config)]
+    (log/info (format "syncing %d libraries: %s"
+                      (count libraries)
+                      (str/join "," (map name (keys libraries)))))
     (catalog/update-libraries! catalog libraries))
   channels)
 

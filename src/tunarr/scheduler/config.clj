@@ -107,7 +107,6 @@
                                           :channels  channel-config
                                           :categories categories-config})}
      :tunarr/config-sync {:channels channel-config
-                          :library-names (keys (get collection-config :libraries))
                           :collection-config collection-config
                           :catalog (ig/ref :tunarr/catalog)}
      :tunarr/normalize-tags {:catalog (ig/ref :tunarr/catalog)
