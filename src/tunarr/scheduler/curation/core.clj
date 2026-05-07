@@ -74,9 +74,9 @@
   (log/info (format "flagging episode with special tags: %s" name))
   (when-let [response (tunabrain/request-episode-special-flags! brain media
                                                                 :parent-title (some-> parent-id
-                                                                                       (catalog/get-media catalog)
+                                                                                       (catalog/get-media-by-id catalog)
                                                                                        (::media/name))
-                                                                :existing-flags (catalog/get-tags catalog id))]
+                                                                :existing-flags (catalog/get-media-tags catalog id))]
     (when-let [flags (:flags response)]
       (when (s/valid? ::media/tags flags)
         (log/info (format "Applying special flags to episode %s: %s" name flags))
