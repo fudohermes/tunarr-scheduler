@@ -3,6 +3,8 @@
             [cheshire.core :as json]
             [clojure.spec.alpha :as s]
             [taoensso.timbre :as log]
+            [camel-snake-kebab.core :as csk]
+            [camel-snake-kebab.core :as csk]
             [tunarr.scheduler.media :as media]
             [tunarr.scheduler.media.collection :as collection]
             [tunarr.scheduler.backends.pseudovision.client :as pv])
@@ -51,9 +53,9 @@
         (assoc ::media/kid-friendly? false)
         (cond->
           (= :episode (keyword (:kind item)))
-          (assoc ::media/parent-id (str (:parent-id item)))
-          (assoc ::media/season-number (:season-number item))
-          (assoc ::media/episode-number (:episode-number item))))))
+          (assoc ::media/parent-id (str (:parent-id item))
+                 ::media/season-number (:season-number item)
+                 ::media/episode-number (:episode-number item))))))
 
 (defn- ensure-episode-defaults
   [item]
@@ -91,13 +93,16 @@
 
   (get-library-items [_ library]
     (let [libraries (pv/list-all-libraries config)
+          ;; Normalize input library name for case-insensitive matching
+          normalized-library (csk/->kebab-case (name library))
           library-match (some (fn [lib]
-                                (when (= (name library) (:name lib))
+                                (when (= normalized-library (csk/->kebab-case (:name lib)))
                                   lib))
                               libraries)]
       (if-not library-match
         (throw (ex-info (str "media library not found: " (name library))
                 {:library library
+                 :normalized-library normalized-library
                  :available-libraries (mapv :name libraries)}))
         (let [items (fetch-library-items-from-pv config (:id library-match))
               parsed (map (fn [item]
