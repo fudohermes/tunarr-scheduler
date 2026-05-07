@@ -67,6 +67,21 @@
         (log/info (format "Taglines for %s: %s" name taglines))
         (catalog/add-media-taglines! catalog id taglines)))))
 
+(defn retag-episode-with-special-flags!
+  "Tag an episode using the lightweight special flags endpoint.
+   Calls tunabrain's /tags/episode-special-flag with constrained vocabulary."
+  [brain catalog {:keys [::media/id ::media/name ::media/parent-id] :as media}]
+  (log/info (format "flagging episode with special tags: %s" name))
+  (when-let [response (tunabrain/request-episode-special-flags! brain media
+                                                                :parent-title (some-> parent-id
+                                                                                       (catalog/get-media catalog)
+                                                                                       (::media/name))
+                                                                :existing-flags (catalog/get-tags catalog id))]
+    (when-let [flags (:flags response)]
+      (when (s/valid? ::media/tags flags)
+        (log/info (format "Applying special flags to episode %s: %s" name flags))
+        (catalog/add-media-tags! catalog id (vec flags))))))
+
 (defn retag-library-media!
   [brain catalog library throttler & {:keys [threshold force]}]
   (log/info (format "re-tagging media for library: %s (force=%s)" (name library) (boolean force)))
@@ -108,9 +123,9 @@
                                 (::media/episode-number ep)
                                 auto-tags))
               (catalog/add-media-tags! catalog (::media/id ep) (vec auto-tags)))))
-        ;; Tier 2: Send candidates to LLM for refined tagging
+        ;; Tier 2: Send candidates to LLM for refined tagging via special flags endpoint
         (doseq [ep candidates]
-          (throttler/submit! throttler retag-media!
+          (throttler/submit! throttler retag-episode-with-special-flags!
                              (process-callback catalog ep :process/episode-tagging)
                              [brain catalog ep]))))))
 
