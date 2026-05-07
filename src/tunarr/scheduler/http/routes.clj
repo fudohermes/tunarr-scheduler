@@ -229,14 +229,15 @@
   (let [dispatch (ring/ring-handler
                   (ring/router
                    (routes ctx)
-                   {:data {:muuntaja   mw/muuntaja
-                           :coercion   malli-coercion/coercion
-                           :middleware [parameters/parameters-middleware
-                                        muuntaja-mw/format-negotiate-middleware
-                                        muuntaja-mw/format-request-middleware
-                                        mw/exception-middleware
-                                        rrc/coerce-request-middleware
-                                        rrc/coerce-response-middleware]}})
+                    {:data {:muuntaja   mw/muuntaja
+                            :coercion   malli-coercion/coercion
+                            :middleware [parameters/parameters-middleware
+                                         muuntaja-mw/format-negotiate-middleware
+                                         muuntaja-mw/format-request-middleware
+                                         muuntaja-mw/format-response-middleware
+                                         mw/exception-middleware
+                                         rrc/coerce-request-middleware
+                                         rrc/coerce-response-middleware]}})
                   (ring/routes
                    (swagger-ui/create-swagger-ui-handler
                     {:path "/swagger-ui"
