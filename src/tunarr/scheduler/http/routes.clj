@@ -70,6 +70,24 @@
                         500 {:body s/APIError}}
             :handler   (media/sync-libraries-handler ctx)}}]
 
+   ["/api/library/:library/media"
+    {:tags       ["media"]
+     :parameters {:path [:map [:library s/LibraryName]]}
+     :get        {:summary   "Get all media items in a library with process timestamps"
+                  :responses {200 {:body s/MediaListResponse}
+                              404 {:body s/APIError}
+                              500 {:body s/APIError}}
+                  :handler   (media/get-library-media-handler ctx)}}]
+
+   ["/api/media-item/:media-id"
+    {:tags       ["media"]
+     :parameters {:path [:map [:media-id s/MediaId]]}
+     :get        {:summary   "Get a specific media item by ID with process timestamps"
+                  :responses {200 {:body s/MediaItemResponse}
+                              404 {:body s/APIError}
+                              500 {:body s/APIError}}
+                  :handler   (media/get-media-by-id-handler ctx)}}]
+
    ["/api/media/:library/rescan"
     {:tags       ["media"]
      :parameters {:path [:map [:library s/LibraryName]]}

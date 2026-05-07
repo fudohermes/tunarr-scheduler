@@ -517,7 +517,7 @@
                      (-> (sql:get-top-level-media)
                          (where [:= :media/library_id library-id])))
          (map row->media)
-         (enrich-media-with-timestamps this)))
+         (catalog/enrich-media-with-timestamps this)))
 
   (get-media-by-library [self library]
     (if-let [library-id (some-> (sql:fetch! executor (sql:get-library-id library))
@@ -540,7 +540,7 @@
   (get-media-by-id [this media-id]
     (when-let [media (first (sql:fetch! executor (-> (sql:get-media)
                                                       (where [:= :media/id media-id]))))]
-      (first (enrich-media-with-timestamps this [media]))))
+      (first (catalog/enrich-media-with-timestamps this [media]))))
 
   (add-media-tags! [_ media-id tags]
     (sql:exec-with-tx! executor
@@ -650,7 +650,7 @@
   (get-episodes-by-series [this series-id]
     (->> (sql:fetch! executor (sql:get-episodes-by-series series-id))
          (map row->media)
-         (enrich-media-with-timestamps this)))
+         (catalog/enrich-media-with-timestamps this)))
 
   (get-episode [_ series-id season-number episode-number]
     (some->> (sql:fetch! executor (sql:get-episode series-id season-number episode-number))
@@ -686,17 +686,17 @@
             first
             :library/id))
 
-  (enrich-media-with-timestamps [_ media]
+  (enrich-media-with-timestamps [this media]
     "Add process timestamps to media metadata."
     (if (sequential? media)
       (map (fn [m]
              (let [id (::media/id m)
-                   timestamps (get-media-process-timestamps _ {::media/id id})]
+                   timestamps (catalog/get-media-process-timestamps this {::media/id id})]
                (assoc m ::media/process-timestamps timestamps)))
            media)
       (let [id (::media/id media)
-            timestamps (get-media-process-timestamps _ {::media/id id})]
-        (assoc media ::media/process-timestamps timestamps))))
+            timestamps (catalog/get-media-process-timestamps this {::media/id id})]
+        (assoc media ::media/process-timestamps timestamps)))))
 
 
 (defmethod catalog/initialize-catalog! :postgresql

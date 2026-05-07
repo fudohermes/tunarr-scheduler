@@ -288,3 +288,32 @@
       (catch Exception e
         (log/error e "Error during tag audit")
         {:status 500 :body {:error (.getMessage e)}}))))
+
+(defn get-library-media-handler
+  "Get all media items in a library with process timestamps."
+  [{:keys [catalog]}]
+  (fn [req]
+    (try
+      (let [library (get-in req [:parameters :path :library])
+            library-kw (keyword library)
+            library-id (catalog/get-library-id catalog library-kw)]
+        (if library-id
+          (let [media (catalog/get-media-by-library-id catalog library-id)]
+            {:status 200 :body {:media media}})
+          {:status 404 :body {:error (str "Library not found: " library)}}))
+      (catch Exception e
+        (log/error e "Error fetching library media")
+        {:status 500 :body {:error (.getMessage e)}}))))
+
+(defn get-media-by-id-handler
+  "Get a specific media item by ID with process timestamps."
+  [{:keys [catalog]}]
+  (fn [req]
+    (try
+      (let [media-id (get-in req [:parameters :path :media-id])]
+        (if-let [media (catalog/get-media-by-id catalog media-id)]
+          {:status 200 :body media}
+          {:status 404 :body {:error (str "Media not found: " media-id)}}))
+      (catch Exception e
+        (log/error e "Error fetching media by ID")
+        {:status 500 :body {:error (.getMessage e)}}))))

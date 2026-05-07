@@ -92,6 +92,30 @@
 ;; Media operations
 ;; ---------------------------------------------------------------------------
 
+(def ProcessName
+  [:keyword {:description "Process name (e.g. :process/tagging, :process/categorization)"}])
+
+(def ProcessTimestamp
+  [:string {:description "ISO-8601 timestamp of when process last ran"}])
+
+(def ProcessTimestamps
+  [:map-of {:description "Map of process names to their last run timestamps"}
+   ProcessName ProcessTimestamp])
+
+(def MediaId
+  [:string {:min 1 :description "Media item identifier"}])
+
+(def MediaType
+  [:enum {:description "Type of media item"}
+   :movie :series :episode :season])
+
+(def MediaMetadata
+  [:map
+   [:id MediaId]
+   [:name {:optional true} :string]
+   [:type {:optional true} MediaType]
+   [:process-timestamps {:optional true} ProcessTimestamps]])
+
 (def Library
   [:map
    [:id   {:optional true} [:maybe :int]]
@@ -101,6 +125,13 @@
 (def LibraryListResponse
   [:map
    [:libraries [:vector Library]]])
+
+(def MediaListResponse
+  [:map
+   [:media [:vector MediaMetadata]]])
+
+(def MediaItemResponse
+  MediaMetadata)
 
 (def MigrateToPseudovisionRequest
   [:map
