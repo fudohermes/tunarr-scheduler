@@ -2,21 +2,44 @@
   "HTTP middleware for JSON handling, exception handling, and logging."
   (:require [muuntaja.core :as m]
             [cheshire.core :as json]
-            [taoensso.timbre :as log]))
+            [taoensso.timbre :as log])
+  (:import [com.fasterxml.jackson.databind.module SimpleModule]
+           [com.fasterxml.jackson.databind JsonSerializer SerializerProvider]
+           [com.fasterxml.jackson.core JsonGenerator]
+           [java.time LocalDate Instant]
+           [java.math BigDecimal]))
 
 ;; ---------------------------------------------------------------------------
 ;; Muuntaja configuration
 ;; ---------------------------------------------------------------------------
 
+(defn- string-serializer [f]
+  (proxy [JsonSerializer] []
+    (serialize [value ^JsonGenerator gen ^SerializerProvider _provider]
+      (.writeString gen (f value)))))
+
+(defn- bigdecimal-serializer []
+  (proxy [JsonSerializer] []
+    (serialize [value ^JsonGenerator gen ^SerializerProvider _provider]
+      (.writeNumber gen ^BigDecimal value))))
+
+(defn- java-types-module []
+  (doto (SimpleModule.)
+    (.addSerializer LocalDate  (string-serializer str))
+    (.addSerializer Instant    (string-serializer str))
+    (.addSerializer BigDecimal (bigdecimal-serializer))))
+
 (def muuntaja
   "JSON encoding/decoding configuration.
-   
+
    Replaces manual JSON parsing with automatic content negotiation and
    coercion. Configured to use keyword keys for parsed JSON bodies."
   (m/create
    (-> m/default-options
        (assoc-in [:formats "application/json" :decoder-opts]
-                 {:keywords? true}))))
+                 {:keywords? true})
+       (assoc-in [:formats "application/json" :encoder-opts]
+                 {:modules [(java-types-module)]}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Exception middleware
