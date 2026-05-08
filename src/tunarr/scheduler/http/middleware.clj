@@ -1,6 +1,7 @@
 (ns tunarr.scheduler.http.middleware
   "HTTP middleware for JSON handling, exception handling, and logging."
   (:require [muuntaja.core :as m]
+            [cheshire.core :as json]
             [taoensso.timbre :as log]))
 
 ;; ---------------------------------------------------------------------------
@@ -62,14 +63,15 @@
 (defn wrap-json-response
   "Ensures response body is JSON encoded if it's a map.
    
-   This is a top-level wrapper that ensures all responses have appropriate
-   Content-Type headers. Muuntaja handles the actual encoding."
+   This wrapper catches responses that bypass the Muuntaja middleware
+   (like 404/405 handlers) and manually encodes their bodies to JSON."
   [handler]
   (fn [request]
     (let [response (handler request)]
-      (if (and (map? (:body response))
-               (not (get-in response [:headers "Content-Type"])))
-        (assoc-in response [:headers "Content-Type"] "application/json")
+      (if (map? (:body response))
+        (-> response
+            (update :body json/generate-string)
+            (assoc-in [:headers "Content-Type"] "application/json; charset=utf-8"))
         response))))
 
 ;; ---------------------------------------------------------------------------
