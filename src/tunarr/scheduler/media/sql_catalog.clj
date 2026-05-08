@@ -193,8 +193,8 @@
 (defn sql:insert-libraries
   [libraries]
   (-> (insert-into :library)
-      (columns :name :id)
-      (values (into [] (map (fn [[k v]] [(name k) v])) libraries))
+      (columns :id :name)
+      (values (into [] (map (fn [[k v]] [v (name k)])) libraries))
       (on-conflict :id) (do-update-set :id :name)))
 
 (s/fdef sql:insert-channels
