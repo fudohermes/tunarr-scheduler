@@ -9,13 +9,13 @@
 ;; Primitives
 ;; ---------------------------------------------------------------------------
 
-(def LibraryName 
+(def LibraryName
   [:string {:min 1 :description "Library name (e.g. 'movies', 'shows')"}])
 
-(def JobId 
+(def JobId
   [:string {:min 1 :description "Job identifier UUID"}])
 
-(def ChannelId 
+(def ChannelId
   [:int {:min 1 :description "Channel identifier"}])
 
 ;; ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def Health
-  [:map 
+  [:map
    [:status :string]])
 
 (def Version
@@ -110,7 +110,7 @@
    :movie :series :episode :season])
 
 (def MediaMetadata
-  [:map
+  [:map {:closed false}
    [:id MediaId]
    [:name {:optional true} :string]
    [:type {:optional true} MediaType]
