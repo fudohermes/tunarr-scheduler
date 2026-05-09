@@ -1,393 +1,251 @@
 (ns tunarr.scheduler.http.routes
-  (:require [cheshire.core :as json]
-            [clojure.java.io :as io]
-            [reitit.ring :as ring]
-            [ring.util.response :refer [response status content-type]]
-            [taoensso.timbre :as log]
-            [tunarr.scheduler.jobs.runner :as jobs]
-            [tunarr.scheduler.media.sync :as media-sync]
-            [tunarr.scheduler.media.pseudovision-sync :as pv-sync]
-            [tunarr.scheduler.media.pseudovision-migration :as pv-migration]
-            [tunarr.scheduler.media.pseudovision-media-sync :as pv-media-sync]
-            [tunarr.scheduler.scheduling.pseudovision :as pv-schedule]
-            [tunarr.scheduler.channels.sync :as channel-sync]
-            [tunarr.scheduler.backends.pseudovision.client :as pv-client]
-            [tunarr.scheduler.curation.core :as curate]
-            [tunarr.scheduler.tunabrain :as tunabrain]
-            [tunarr.scheduler.media.catalog :as catalog]))
+  "HTTP routes with OpenAPI documentation and Malli validation."
+  (:require [reitit.ring                            :as ring]
+            [reitit.openapi                         :as openapi]
+            [reitit.swagger-ui                      :as swagger-ui]
+            [reitit.coercion.malli                  :as malli-coercion]
+            [reitit.ring.coercion                   :as rrc]
+            [reitit.ring.middleware.parameters      :as parameters]
+            [reitit.ring.middleware.muuntaja        :as muuntaja-mw]
+            [tunarr.scheduler.http.middleware       :as mw]
+            [tunarr.scheduler.http.schemas          :as s]
+            [tunarr.scheduler.http.api.media        :as media]
+            [tunarr.scheduler.http.api.channels     :as channels]
+            [tunarr.scheduler.http.api.jobs         :as jobs]))
 
-(defn- read-json [request]
-  (when-let [body (:body request)]
-    (with-open [r (io/reader body)]
-      (json/parse-stream r true))))
+;; ---------------------------------------------------------------------------
+;; Basic handlers
+;; ---------------------------------------------------------------------------
 
-(defn- json-response [data status-code]
-  (-> (response (json/generate-string data))
-      (status status-code)
-      (content-type "application/json")))
+(defn health-handler [_]
+  {:status 200 :body {:status "ok"}})
 
-(defn- ok [data]
-  (json-response data 200))
+(defn version-handler [_]
+  {:status 200
+   :body {:git-commit    (System/getenv "GIT_COMMIT")
+          :git-timestamp (System/getenv "GIT_TIMESTAMP")
+          :version-tag   (System/getenv "VERSION_TAG")}})
 
-(defn- accepted [data]
-  (json-response data 202))
+;; ---------------------------------------------------------------------------
+;; Routes with OpenAPI metadata
+;; ---------------------------------------------------------------------------
 
-(defn- bad-request [message]
-  (json-response {:error message} 400))
+(defn routes [ctx]
+  [""
+   ;; ── OpenAPI spec ────────────────────────────────────────────────────────
+   ["/openapi.json"
+    {:get {:no-doc  true
+           :openapi {:info {:title       "Tunarr Scheduler API"
+                            :version     "0.1.0"
+                            :description "Tunarr Scheduler REST API for media management and scheduling"}}
+           :handler (openapi/create-openapi-handler)}}]
 
-(defn- not-found [message]
-  (json-response {:error message} 404))
+   ;; ── Health ──────────────────────────────────────────────────────────────
+   ["/healthz"
+    {:get {:tags      ["health"]
+           :summary   "Health check endpoint"
+           :responses {200 {:body s/Health}}
+           :handler   health-handler}}]
 
-(defn- submit-job!
-  "Generic job submission handler."
-  [job-runner job-type library error-msg job-fn]
-  (if-not library
-    (bad-request error-msg)
-    (let [job (jobs/submit! job-runner
-                            {:type job-type
-                             :metadata {:library library}}
-                            (fn [report-progress]
-                              (job-fn {:library         library
-                                       :report-progress report-progress})))]
-      (accepted {:job job}))))
+   ;; ── Version ─────────────────────────────────────────────────────────────
+   ["/api/version"
+    {:get {:tags      ["meta"]
+           :summary   "Build and version information"
+           :responses {200 {:body s/Version}}
+           :handler   version-handler}}]
 
-(defn- submit-rescan-job!
-  [{:keys [job-runner collection catalog]} {:keys [library]}]
-  (try
-    (submit-job! job-runner
-                 :media/rescan
-                 library
-                 "library not specified for rescan"
-                 (fn [opts] (media-sync/rescan-library! collection catalog opts)))
-    (catch Exception e
-      (log/error e "Error submitting rescan job" {:library library})
-      (json-response {:error (.getMessage e)} 500))))
+   ;; ── Media ───────────────────────────────────────────────────────────────
+   ["/api/media/libraries"
+    {:tags ["media"]
+     :get  {:summary   "List all media libraries from Pseudovision"
+            :responses {200 {:body s/LibraryListResponse}
+                        500 {:body s/APIError}}
+            :handler   (media/list-libraries-handler ctx)}}]
 
-(defn- submit-retag-job!
-  [{:keys [job-runner catalog tunabrain throttler config]} {:keys [library force]}]
-  (try
-    (submit-job! job-runner
-                 :media/retag
-                 library
-                 "library not specified for retag"
-                 (fn [opts] (curate/retag-library!
-                             (curate/->TunabrainCuratorBackend
-                              tunabrain catalog throttler config)
-                             library
-                             {:force force})))
-    (catch Exception e
-      (log/error e "Error submitting retag job" {:library library})
-      (json-response {:error (.getMessage e)} 500))))
+   ["/api/media/sync-libraries"
+    {:tags ["media"]
+     :post {:summary   "Sync libraries from Pseudovision to catalog"
+            :responses {200 {:body s/LibraryListResponse}
+                        400 {:body s/APIError}
+                        500 {:body s/APIError}}
+            :handler   (media/sync-libraries-handler ctx)}}]
 
-(defn- submit-tagline-job!
-  [{:keys [job-runner catalog tunabrain throttler config]} {:keys [library]}]
-  (try
-    (submit-job! job-runner
-                 :media/taglines
-                 library
-                 "library not specified for taglines"
-                 (fn [opts] (curate/generate-library-taglines!
-                             (curate/->TunabrainCuratorBackend
-                              tunabrain catalog throttler config)
-                             library)))
-    (catch Exception e
-      (log/error e "Error submitting tagline job" {:library library})
-      (json-response {:error (.getMessage e)} 500))))
+   ["/api/library/:library/media"
+    {:tags       ["media"]
+     :parameters {:path [:map [:library s/LibraryName]]}
+     :get        {:summary   "Get all media items in a library with process timestamps"
+                  :responses {200 {:body s/MediaListResponse}
+                              404 {:body s/APIError}
+                              500 {:body s/APIError}}
+                  :handler   (media/get-library-media-handler ctx)}}]
 
-(defn- submit-recategorize-job!
-  [{:keys [job-runner catalog tunabrain throttler config]} {:keys [library force]}]
-  (try
-    (submit-job! job-runner
-                 :media/recategorize
-                 library
-                 "library not specified for recategorize"
-                 (fn [opts] (curate/recategorize-library!
-                             (curate/->TunabrainCuratorBackend
-                              tunabrain catalog throttler config)
-                             library
-                             {:force force})))
-    (catch Exception e
-      (log/error e "Error submitting recategorize job" {:library library})
-      (json-response {:error (.getMessage e)} 500))))
+   ["/api/media-item/:media-id"
+    {:tags       ["media"]
+     :parameters {:path [:map [:media-id s/MediaId]]}
+     :get        {:summary   "Get a specific media item by ID with process timestamps"
+                  :responses {200 {:body s/MediaItemResponse}
+                              404 {:body s/APIError}
+                              500 {:body s/APIError}}
+                  :handler   (media/get-media-by-id-handler ctx)}}]
 
-(defn- submit-retag-episodes-job!
-  [{:keys [job-runner catalog tunabrain throttler config]} {:keys [library force]}]
-  (try
-    (submit-job! job-runner
-                 :media/retag-episodes
-                 library
-                 "library not specified for episode retagging"
-                 (fn [_opts] (curate/retag-library-episodes!
-                              (curate/->TunabrainCuratorBackend
-                               tunabrain catalog throttler config)
-                              library
-                              {:force force})))
-    (catch Exception e
-      (log/error e "Error submitting episode retag job" {:library library})
-      (json-response {:error (.getMessage e)} 500))))
+   ["/api/media/:library/rescan"
+    {:tags       ["media"]
+     :parameters {:path [:map [:library s/LibraryName]]}
+     :post       {:summary   "Trigger async library rescan job"
+                  :responses {202 {:body s/JobSubmitResponse}
+                              400 {:body s/APIError}
+                              500 {:body s/APIError}}
+                  :handler   (media/rescan-handler ctx)}}]
 
-(defn- submit-pseudovision-sync-job!
-  [{:keys [job-runner catalog pseudovision]} {:keys [library]}]
-  (try
-    (submit-job! job-runner
-                 :media/pseudovision-sync
-                 library
-                 "library not specified for pseudovision sync"
-                 (fn [opts] (pv-sync/sync-library-tags! catalog
-                                                         pseudovision
-                                                         library)))
-    (catch Exception e
-      (log/error e "Error submitting Pseudovision sync job" {:library library})
-      (json-response {:error (.getMessage e)} 500))))
+   ["/api/media/:library/retag"
+    {:tags       ["media"]
+     :parameters {:path  [:map [:library s/LibraryName]]
+                  :query s/ForceQuery}
+     :post       {:summary   "Trigger async LLM retagging job"
+                  :responses {202 {:body s/JobSubmitResponse}
+                              400 {:body s/APIError}
+                              500 {:body s/APIError}}
+                  :handler   (media/retag-handler ctx)}}]
 
-(defn- migrate-to-pseudovision!
-  "Run the one-time migration from local catalog to Pseudovision."
-  [{:keys [catalog pseudovision]} body]
-  (try
-    (let [params (or body {})
-          dry-run? (get params :dry-run false)
-          include-categories? (get params :include-categories true)
-          batch-size (get params :batch-size 10)
-          delay-ms (get params :delay-ms 100)
-          ;; Extract config from PseudovisionBackend client
-          pv-config (pv-client/get-config pseudovision)]
-      
-      (log/info "Starting Pseudovision migration" 
-                {:dry-run dry-run? 
-                 :batch-size batch-size
-                 :include-categories include-categories?})
-      
-      (let [result (pv-migration/migrate-all! 
-                     catalog 
-                     pv-config
-                     {:dry-run dry-run?
-                      :include-categories include-categories?
-                      :batch-size batch-size
-                      :delay-ms delay-ms})]
-        
-        (ok (assoc result :message 
-                   (if dry-run?
-                     "Dry run complete - no changes made"
-                     "Migration complete")))))
-    
-    (catch Exception e
-      (log/error e "Error during Pseudovision migration")
-      (json-response {:error (.getMessage e)} 500))))
+   ["/api/media/:library/add-taglines"
+    {:tags       ["media"]
+     :parameters {:path [:map [:library s/LibraryName]]}
+     :post       {:summary   "Generate taglines for library media with LLM"
+                  :responses {202 {:body s/JobSubmitResponse}
+                              400 {:body s/APIError}
+                              500 {:body s/APIError}}
+                  :handler   (media/tagline-handler ctx)}}]
 
-(defn- audit-tags!
-  "Audit all tags with Tunabrain and remove unsuitable ones."
-  [{:keys [tunabrain catalog]}]
-  (try
-    (let [tags (catalog/get-tags catalog)
-          _ (log/info (format "Auditing %d tags" (count tags)))
-          {:keys [recommended-for-removal]} (tunabrain/request-tag-audit! tunabrain tags)
-          removal-count (count recommended-for-removal)
-          removed-count (atom 0)]
-      (log/info (format "Tunabrain recommended %d tags for removal" removal-count))
-      (if (pos? removal-count)
-        (doseq [{:keys [tag reason]} recommended-for-removal]
-          (log/info (format "Removing tag '%s': %s" tag reason))
-          (catalog/delete-tag! catalog (keyword tag))
-          (swap! removed-count inc))
-        (log/info "No tags recommended for removal"))
-      (log/info (format "Tag audit complete: %d audited, %d removed"
-                        (count tags) @removed-count))
-      (ok {:tags-audited (count tags)
-           :tags-removed @removed-count
-           :removed recommended-for-removal}))
-    (catch Exception e
-      (log/error e "Error during tag audit")
-      (json-response {:error (.getMessage e)} 500))))
+   ["/api/media/:library/recategorize"
+    {:tags       ["media"]
+     :parameters {:path  [:map [:library s/LibraryName]]
+                  :query s/ForceQuery}
+     :post       {:summary   "Recategorize library media with LLM"
+                  :responses {202 {:body s/JobSubmitResponse}
+                              400 {:body s/APIError}
+                              500 {:body s/APIError}}
+                  :handler   (media/recategorize-handler ctx)}}]
 
-(defn- sync-from-pseudovision!
-  "Sync media items FROM Pseudovision TO catalog."
-  [{:keys [catalog pseudovision]} {:keys [library]}]
-  (try
-    (when-not library
-      (throw (ex-info "library parameter required" {})))
-    
-    (let [pv-config (pv-client/get-config pseudovision)
-          library-kw (keyword library)]
-      
-      (log/info "Syncing from Pseudovision" {:library library})
-      
-      (let [result (pv-media-sync/sync-library-from-pseudovision! 
-                     catalog 
-                     pv-config 
-                     library-kw 
-                     {})]
-        (ok (assoc result :message "Pseudovision sync complete"))))
-    
-    (catch Exception e
-      (log/error e "Error syncing from Pseudovision" {:library library})
-      (json-response {:error (.getMessage e)} 500))))
+   ["/api/media/:library/retag-episodes"
+    {:tags       ["media"]
+     :parameters {:path  [:map [:library s/LibraryName]]
+                  :query s/ForceQuery}
+     :post       {:summary   "Retag episode special flags with LLM"
+                  :responses {202 {:body s/JobSubmitResponse}
+                              400 {:body s/APIError}
+                              500 {:body s/APIError}}
+                  :handler   (media/retag-episodes-handler ctx)}}]
 
-(defn- migrate-catalog-ids!
-  "Migrate catalog to use Pseudovision IDs instead of Jellyfin IDs."
-  [{:keys [catalog pseudovision]} {:keys [library]}]
-  (try
-    (when-not library
-      (throw (ex-info "library parameter required" {})))
-    
-    (let [pv-config (pv-client/get-config pseudovision)
-          library-kw (keyword library)]
-      
-      (log/info "Migrating catalog IDs to Pseudovision" {:library library})
-      
-      (let [result (pv-media-sync/migrate-catalog-to-pseudovision! 
-                     catalog 
-                     pv-config 
-                     library-kw)]
-        (ok (assoc result :message "Catalog ID migration complete"))))
-    
-    (catch Exception e
-      (log/error e "Error migrating catalog IDs" {:library library})
-      (json-response {:error (.getMessage e)} 500))))
+   ["/api/media/:library/sync-pseudovision-tags"
+    {:tags       ["media"]
+     :parameters {:path [:map [:library s/LibraryName]]}
+     :post       {:summary   "Sync library tags to Pseudovision (async job)"
+                  :responses {202 {:body s/JobSubmitResponse}
+                              400 {:body s/APIError}
+                              500 {:body s/APIError}}
+                  :handler   (media/pseudovision-sync-handler ctx)}}]
 
-(defn- list-libraries!
-  "List all libraries from Pseudovision."
-  [{:keys [pseudovision]}]
-  (try
-    (if-not pseudovision
-      (ok {:libraries []})
-      (let [pv-config (pv-client/get-config pseudovision)
-            libraries (pv-client/list-all-libraries pv-config)]
-        (ok {:libraries libraries})))
-    (catch Exception e
-      (log/error e :msg (str "Error listing libraries") :error (.getMessage e))
-      (json-response {:error (.getMessage e)} 500))))
+   ["/api/media/migrate-to-pseudovision"
+    {:tags ["media"]
+     :post {:summary    "One-time migration from local catalog to Pseudovision"
+            :parameters {:body s/MigrateToPseudovisionRequest}
+            :responses  {200 {:body s/MigrationResponse}
+                         500 {:body s/APIError}}
+            :handler    (media/migrate-to-pseudovision-handler ctx)}}]
 
-(defn- sync-libraries!
-  "Sync libraries from Pseudovision into the catalog."
-  [{:keys [catalog pseudovision]}]
-  (try
-    (if-not pseudovision
-      (bad-request "Pseudovision is not configured")
-      (let [pv-config    (pv-client/get-config pseudovision)
-            libraries    (pv-client/list-all-libraries pv-config)
-            library-map  (into {} (map (fn [lib] [(keyword (:kind lib)) (:id lib)]) libraries))]
-        (catalog/update-libraries! catalog library-map)
-        (log/info "Synced libraries from Pseudovision" {:count (count library-map)})
-        (ok {:libraries libraries})))
-    (catch Exception e
-      (log/error e "Error syncing libraries from Pseudovision")
-      (json-response {:error (.getMessage e)} 500))))
+   ["/api/media/:library/sync-from-pseudovision"
+    {:tags       ["media"]
+     :parameters {:path [:map [:library s/LibraryName]]}
+     :post       {:summary   "Sync media items from Pseudovision to catalog"
+                  :responses {200 {:body s/SyncFromPseudovisionResponse}
+                              400 {:body s/APIError}
+                              500 {:body s/APIError}}
+                  :handler   (media/sync-from-pseudovision-handler ctx)}}]
+
+   ["/api/media/:library/migrate-catalog-ids"
+    {:tags       ["media"]
+     :parameters {:path [:map [:library s/LibraryName]]}
+     :post       {:summary   "Migrate catalog IDs to use Pseudovision format"
+                  :responses {200 {:body s/MigrateCatalogIdsResponse}
+                              400 {:body s/APIError}
+                              500 {:body s/APIError}}
+                  :handler   (media/migrate-catalog-ids-handler ctx)}}]
+
+   ["/api/media/tags/audit"
+    {:tags ["media"]
+     :post {:summary   "Audit all tags with LLM and remove unsuitable ones"
+            :responses {200 {:body s/TagAuditResponse}
+                        500 {:body s/APIError}}
+            :handler   (media/audit-tags-handler ctx)}}]
+
+   ;; ── Channels ────────────────────────────────────────────────────────────
+   ["/api/channels/sync-pseudovision"
+    {:tags ["channels"]
+     :post {:summary   "Sync all channels to Pseudovision"
+            :responses {200 {:body s/ChannelSyncResponse}
+                        500 {:body s/APIError}}
+            :handler   (channels/sync-channels-handler ctx)}}]
+
+   ["/api/channels/:channel-id/schedule"
+    {:tags       ["channels"]
+     :parameters {:path [:map [:channel-id s/ChannelId]]
+                  :body s/ChannelScheduleRequest}
+     :post       {:summary   "Update channel schedule in Pseudovision"
+                  :responses {200 {:body s/ChannelScheduleResponse}
+                              500 {:body s/APIError}}
+                  :handler   (channels/update-schedule-handler ctx)}}]
+
+   ;; ── Jobs ────────────────────────────────────────────────────────────────
+   ["/api/jobs"
+    {:tags ["jobs"]
+     :get  {:summary   "List all async jobs"
+            :responses {200 {:body s/JobListResponse}}
+            :handler   (jobs/list-jobs-handler ctx)}}]
+
+   ["/api/jobs/:job-id"
+    {:tags       ["jobs"]
+     :parameters {:path [:map [:job-id s/JobId]]}
+     :get        {:summary   "Get job status and details"
+                  :responses {200 {:body s/JobInfoResponse}
+                              404 {:body s/APIError}}
+                  :handler   (jobs/get-job-handler ctx)}}]])
+
+;; ---------------------------------------------------------------------------
+;; Handler creation with middleware
+;; ---------------------------------------------------------------------------
 
 (defn handler
-  "Create the ring handler for the API."
-  [{:keys [job-runner collection catalog tunabrain throttler curation-config pseudovision channels]}]
-  (let [_ (println (format "PSEUDOVISION CONFIG: %s" pseudovision))
-        router
-        (ring/router
-         [["/healthz" {:get (fn [_] (ok {:status "ok"}))}]
-          ["/api/version" {:get (fn [_]
-                                  (ok {:git-commit (System/getenv "GIT_COMMIT")
-                                       :git-timestamp (System/getenv "GIT_TIMESTAMP")
-                                       :version-tag (System/getenv "VERSION_TAG")}))}]
-          ["/api"
-           ["/media/libraries" {:get (fn [_]
-                                       (list-libraries!
-                                        {:pseudovision pseudovision}))}]
-           ["/media/sync-libraries" {:post (fn [_]
-                                              (sync-libraries!
-                                               {:catalog      catalog
-                                                :pseudovision pseudovision}))}]
-           ["/media/:library/rescan" {:post (fn [{{:keys [library]} :path-params}]
-                                              (submit-rescan-job!
-                                               {:job-runner job-runner
-                                                :collection collection
-                                                :catalog    catalog}
-                                               {:library    library}))}]
-           ["/media/:library/retag" {:post (fn [{{:keys [library]} :path-params
-                                                 :keys [query-params]}]
-                                             (submit-retag-job!
-                                              {:job-runner job-runner
-                                               :catalog    catalog
-                                               :tunabrain  tunabrain
-                                               :throttler  throttler
-                                               :config     curation-config}
-                                              {:library    library
-                                               :force      (= "true" (get query-params "force"))}))}]
-           ["/media/:library/add-taglines" {:post (fn [{{:keys [library]} :path-params}]
-                                                    (submit-tagline-job!
-                                                     {:job-runner job-runner
-                                                      :catalog    catalog
-                                                      :tunabrain  tunabrain
-                                                      :throttler  throttler
-                                                      :config     curation-config}
-                                                     {:library    library}))}]
-           ["/media/:library/recategorize" {:post (fn [{{:keys [library]} :path-params
-                                                        :keys [query-params]}]
-                                                    (submit-recategorize-job!
-                                                     {:job-runner job-runner
-                                                      :catalog    catalog
-                                                      :tunabrain  tunabrain
-                                                      :throttler  throttler
-                                                      :config     curation-config}
-                                                     {:library    library
-                                                      :force      (= "true" (get query-params "force"))}))}]
-           ["/media/:library/retag-episodes" {:post (fn [{{:keys [library]} :path-params
-                                                          :keys [query-params]}]
-                                                      (submit-retag-episodes-job!
-                                                       {:job-runner job-runner
-                                                        :catalog    catalog
-                                                        :tunabrain  tunabrain
-                                                        :throttler  throttler
-                                                        :config     curation-config}
-                                                       {:library    library
-                                                        :force      (= "true" (get query-params "force"))}))}]
-            ["/media/:library/sync-pseudovision-tags" {:post (fn [{{:keys [library]} :path-params}]
-                                                               (submit-pseudovision-sync-job!
-                                                                {:job-runner job-runner
-                                                                 :catalog    catalog
-                                                                 :pseudovision pseudovision}
-                                                                {:library library}))}]
-            ["/media/migrate-to-pseudovision" {:post (fn [{:keys [body]}]
-                                                        (migrate-to-pseudovision!
-                                                         {:catalog catalog
-                                                          :pseudovision pseudovision}
-                                                         (read-json body)))}]
-            ["/media/:library/sync-from-pseudovision" {:post (fn [{{:keys [library]} :path-params}]
-                                                               (sync-from-pseudovision!
-                                                                {:catalog catalog
-                                                                 :pseudovision pseudovision}
-                                                                {:library library}))}]
-            ["/media/:library/migrate-catalog-ids" {:post (fn [{{:keys [library]} :path-params}]
-                                                            (migrate-catalog-ids!
-                                                             {:catalog catalog
-                                                              :pseudovision pseudovision}
-                                                             {:library library}))}]
-            ["/media/tags/audit" {:post (fn [_]
-                                          (audit-tags!
-                                           {:tunabrain tunabrain
-                                            :catalog   catalog}))}]
-           ["/channels/sync-pseudovision" {:post (fn [_]
-                                                   (try
-                                                     (let [result (channel-sync/sync-all-channels! pseudovision channels)]
-                                                       (ok result))
-                                                     (catch Exception e
-                                                       (log/error e "Error syncing channels to Pseudovision")
-                                                       (json-response {:error (.getMessage e)} 500))))}]
-           ["/channels/:channel-id/schedule" {:post (fn [{{:keys [channel-id]} :path-params
-                                                          :keys [body]}]
-                                                      (try
-                                                        (let [channel-spec (read-json body)
-                                                              horizon (get channel-spec :horizon 14)
-                                                              result (pv-schedule/update-channel-schedule!
-                                                                      pseudovision
-                                                                      (parse-long channel-id)
-                                                                      channel-spec
-                                                                      {:horizon horizon})]
-                                                          (ok result))
-                                                        (catch Exception e
-                                                          (log/error e "Error creating channel schedule")
-                                                          (json-response {:error (.getMessage e)} 500))))}]
-           ["/jobs" {:get (fn [_]
-                            (ok {:jobs (jobs/list-jobs job-runner)}))}]
-           ["/jobs/:job-id" {:get (fn [{{:keys [job-id]} :path-params}]
-                                    (if-let [job (jobs/job-info job-runner job-id)]
-                                      (ok {:job job})
-                                      (not-found "Job not found")))}]]])]
-    (ring/ring-handler router (ring/create-default-handler
-                               {:not-found          (constantly (json-response {:error "Not found"} 404))
-                                :method-not-allowed  (constantly (json-response {:error "Method not allowed"} 405))}))))
+  "Create the ring handler with OpenAPI support.
+   
+   Route data supplies the canonical Reitit middleware chain - parameters,
+   Muuntaja (JSON request decoding), the application exception handler, and
+   malli coercion for :parameters / :responses. Routes without schemas still
+   traverse the chain as a pass-through.
+   
+   Outer wraps - error handling, request logging, JSON response encoding -
+   cover the entire dispatch tree so that unmatched routes (404/405) and
+   the Swagger UI handler also go through them."
+  [ctx]
+  (let [dispatch (ring/ring-handler
+                  (ring/router
+                   (routes ctx)
+                    {:data {:muuntaja   mw/muuntaja
+                            :coercion   malli-coercion/coercion
+                            :middleware [parameters/parameters-middleware
+                                         muuntaja-mw/format-negotiate-middleware
+                                         muuntaja-mw/format-request-middleware
+                                         muuntaja-mw/format-response-middleware
+                                         mw/exception-middleware
+                                         rrc/coerce-request-middleware
+                                         rrc/coerce-response-middleware]}})
+                  (ring/routes
+                   (swagger-ui/create-swagger-ui-handler
+                    {:path "/swagger-ui"
+                     :url  "/openapi.json"})
+                   (ring/create-default-handler
+                    {:not-found          (fn [_] {:status 404 :body {:error "Not found"}})
+                     :method-not-allowed (fn [_] {:status 405 :body {:error "Method not allowed"}})})))]
+    (-> dispatch
+        mw/wrap-json-response
+        mw/wrap-request-logging
+        mw/wrap-error-handler)))
