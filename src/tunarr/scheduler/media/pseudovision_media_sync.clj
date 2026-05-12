@@ -139,7 +139,7 @@
         (log/info "Fetching items from Pseudovision library"
                   {:pv-library-id pv-library-id :catalog-lib-id catalog-lib-id})
 
-        (let [item-stubs (pv/list-library-items pv-config pv-library-id {:attrs "id,remote-key,name,year,parent-id,position"})
+        (let [item-stubs (pv/list-library-items pv-config pv-library-id {:attrs "id,remote-key,name,year,parent-id,position,kind,release-date,season-number,episode-number"})
               total      (count item-stubs)]
 
           (log/info "Starting PV→TS sync"
@@ -163,9 +163,9 @@
                 {:synced synced :skipped skipped :errors errors})
 
               (let [stub (first remaining)
-                    item (pv/get-media-item pv-config (:id stub))
+                    item stub  ; Use stub directly instead of re-fetching full item
                     _ (when (< idx 5)  ; Log first 5 items for debugging
-                        (log/debug "Fetched PV item"
+                        (log/debug "Using PV item stub"
                                    {:item-id (:id stub)
                                     :item-keys (keys item)
                                     :sample-data (select-keys item [:id :name :year :remote-key :kind :parent-id :release-date])}))
