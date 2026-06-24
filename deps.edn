@@ -4,7 +4,14 @@
          org.clojure/core.async    {:mvn/version "1.6.681"}
          org.clojure/data.csv      {:mvn/version "1.1.0"}
          camel-snake-kebab/camel-snake-kebab {:mvn/version "0.4.3"}
-         metosin/reitit            {:mvn/version "0.9.1"}
+         ;; Reitit routing and OpenAPI support
+         metosin/reitit            {:mvn/version "0.10.1"}
+         fi.metosin/reitit-openapi {:mvn/version "0.10.1"}
+         metosin/reitit-swagger-ui {:mvn/version "0.10.1"}
+         metosin/reitit-malli      {:mvn/version "0.10.1"}
+         metosin/malli             {:mvn/version "0.20.1"}
+         metosin/muuntaja          {:mvn/version "0.6.11"}
+         ;; Web server and utilities
          ring/ring-jetty-adapter   {:mvn/version "1.10.0"}
          ring/ring-mock            {:mvn/version "0.6.2"}
          cheshire/cheshire         {:mvn/version "5.13.0"}

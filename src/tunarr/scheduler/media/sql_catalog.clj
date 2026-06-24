@@ -155,7 +155,7 @@
   [library]
   (-> (select :id)
       (from :library)
-      (where [:= :name (name library)])))
+      (where [:= [:lower :name] [:lower (name library)]])
 
 (defn sql:insert-media-tags
   [media-id tags]
@@ -193,8 +193,8 @@
 (defn sql:insert-libraries
   [libraries]
   (-> (insert-into :library)
-      (columns :name :id)
-      (values (into [] (map (fn [[k v]] [(name k) v])) libraries))
+      (columns :id :name)
+      (values (into [] (map (fn [[k v]] [v (name k)])) libraries))
       (on-conflict :id) (do-update-set :id :name)))
 
 (s/fdef sql:insert-channels
@@ -512,11 +512,12 @@
   (get-media [_]
     (sql:fetch! executor (sql:get-media)))
 
-  (get-media-by-library-id [_ library-id]
+  (get-media-by-library-id [this library-id]
     (->> (sql:fetch! executor
                      (-> (sql:get-top-level-media)
                          (where [:= :media/library_id library-id])))
-         (map row->media)))
+         (map row->media)
+         (catalog/enrich-media-with-timestamps this)))
 
   (get-media-by-library [self library]
     (if-let [library-id (some-> (sql:fetch! executor (sql:get-library-id library))
@@ -536,9 +537,10 @@
             :example_titles (pgarray->vec example_titles)})
          (sql:fetch! executor (sql:get-tag-samples))))
 
-  (get-media-by-id [_ media-id]
-    (sql:fetch! executor (-> (sql:get-media)
-                             (where [:= :media/id media-id]))))
+  (get-media-by-id [this media-id]
+    (when-let [media (first (sql:fetch! executor (-> (sql:get-media)
+                                                      (where [:= :media/id media-id]))))]
+      (first (catalog/enrich-media-with-timestamps this [media]))))
 
   (add-media-tags! [_ media-id tags]
     (sql:exec-with-tx! executor
@@ -645,9 +647,10 @@
   (delete-media-category-values! [_ media-id category]
     (sql:exec! executor (sql:delete-media-category-values! media-id category)))
 
-  (get-episodes-by-series [_ series-id]
+  (get-episodes-by-series [this series-id]
     (->> (sql:fetch! executor (sql:get-episodes-by-series series-id))
-         (map row->media)))
+         (map row->media)
+         (catalog/enrich-media-with-timestamps this)))
 
   (get-episode [_ series-id season-number episode-number]
     (some->> (sql:fetch! executor (sql:get-episode series-id season-number episode-number))
@@ -681,7 +684,19 @@
   (get-library-id [_ library]
     (some-> (sql:fetch! executor (sql:get-library-id library))
             first
-            :library/id)))
+            :library/id))
+
+  (enrich-media-with-timestamps [this media]
+    "Add process timestamps to media metadata."
+    (if (sequential? media)
+      (map (fn [m]
+             (let [id (::media/id m)
+                   timestamps (catalog/get-media-process-timestamps this {::media/id id})]
+               (assoc m ::media/process-timestamps timestamps)))
+           media)
+      (let [id (::media/id media)
+            timestamps (catalog/get-media-process-timestamps this {::media/id id})]
+        (assoc media ::media/process-timestamps timestamps)))))
 
 
 (defmethod catalog/initialize-catalog! :postgresql

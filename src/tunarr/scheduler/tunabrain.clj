@@ -148,6 +148,31 @@
                     {:endpoint (:endpoint client)
                      :media-name (::media/name media)}))))
 
+(defn request-episode-special-flags!
+  "Fetch special episode flags from tunabrain using constrained vocabulary.
+   
+  This is lightweight, cost-optimized tagging for episodes. Returns only
+  flags from the allowed vocabulary (e.g., :christmas, :crossover, :musical)."
+  [client media & {:keys [parent-title existing-flags]
+                   :or   {existing-flags []}}]
+  (log/debug (format "===== FLAGGING EPISODE:\\n%s\\n" (with-out-str (pprint media))))
+  (if-let [response (json-post! client "/tags/episode-special-flag"
+                                {:media (media-map->tunabrain-format media)
+                                 :parent_title parent-title
+                                 :existing_flags (mapv name (remove nil? existing-flags))})]
+    (let [{:keys [flags]} response]
+      (when (nil? flags)
+        (throw (ex-info "Invalid episode flag response: missing 'flags' key"
+                        {:response response
+                         :expected-keys [:flags]
+                         :media-name (::media/name media)})))
+      (log/info (format "Episode flag response: %d flags for '%s'"
+                        (count flags) (::media/name media)))
+      {:flags (mapv keyword flags)})
+    (throw (ex-info "No response received from tunabrain episode flagging"
+                    {:endpoint (:endpoint client)
+                     :media-name (::media/name media)}))))
+
 (defn request-categorization!
   "Fetch dimension-based categorization from tunabrain."
   [client media & {:keys [categories]}]
